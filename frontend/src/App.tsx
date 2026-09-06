@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import "./App.css";
 import MarineMap from "./components/MarineMap";
-import { analyzeOrca, getWhatIf, getWatcher, getRouteAnalysis, getFishingIntelligence, getOfficialAlerts, type RouteAnalysisResponse, type FishingIntelligenceResponse, type OfficialAlertsResponse } from "./services/api";
+import { analyzeOrca, getWhatIf, getWatcher, getRouteAnalysis, getOfficialAlerts, type RouteAnalysisResponse, type OfficialAlertsResponse } from "./services/api";
 import { LANGUAGES, saveLanguage, useOrcaLanguage, ui, type LanguageCode } from "./i18n";
 
 type RoleId = "fisherman" | "researcher" | "boat-operator" | "traveler" | "environmentalist" | "authority";
@@ -154,8 +154,6 @@ export default function App() {
   const [watcherLoading, setWatcherLoading] = useState(false);
   const [whatIfLoading, setWhatIfLoading] = useState(false);
   const [whatIfResult, setWhatIfResult] = useState<Result | null>(null);
-  const [fishingIntel, setFishingIntel] = useState<FishingIntelligenceResponse | null>(null);
-  const [fishingIntelLoading, setFishingIntelLoading] = useState(false);
   const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysisResponse | null>(null);
   const [officialAlerts, setOfficialAlerts] = useState<OfficialAlertsResponse | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -215,7 +213,7 @@ export default function App() {
   }, [activeView, watcherOn, result, date, time, coords.latitude, coords.longitude]);
 
   function resetForRole(next: Role) {
-    setRole(next); setVerified(false); setVerificationId(""); setVerificationError(""); setResult(null); setFishingIntel(null); setError(""); setQuestion(""); setVessel(defaultVessel); setDeparture(defaultDeparture); setDestination(emptyDestination); setDepartureLoading(false); setRouteAnalysis(null);
+    setRole(next); setVerified(false); setVerificationId(""); setVerificationError(""); setResult(null); setError(""); setQuestion(""); setVessel(defaultVessel); setDeparture(defaultDeparture); setDestination(emptyDestination); setDepartureLoading(false); setRouteAnalysis(null);
     setScreen(next.id === "fisherman" ? "verify" : roleNeedsVessel(next.id) ? "vessel" : "ask");
   }
 
@@ -493,10 +491,6 @@ export default function App() {
   function selectDestination(p: typeof COASTAL_PRESETS[number]) {
     setDestination({ name: p.name, latitude: p.latitude, longitude: p.longitude });
     setError("");
-  }
-
-  function selectAssessmentLocation(p: typeof COASTAL_PRESETS[number]) {
-    setLocation(p.name); setCoords({ latitude: p.latitude, longitude: p.longitude }); setLocationSource("preset"); setError("");
   }
 
   function goBack() {
@@ -822,7 +816,6 @@ export default function App() {
       {!result ? <div className="empty-dashboard"><div className="empty-icon">✦</div><h2>Ask ORCA to start an assessment</h2><p>{focus?.text || "Your next marine assessment will appear here."}</p><div className="role-focus-grid">{(focus?.cards || []).map(([icon,title,desc]) => <div className="role-focus-card" key={title}><span>{icon}</span><b>{title}</b><small>{desc}</small></div>)}</div><button className="primary-btn" onClick={() => { setQuestion(suggestionFor(roleId)); setScreen("ask"); }}>ASK ORCA →</button></div> : <>
         {renderRoleWorkspace()}
         <div className="role-focus-grid compact">{(focus?.cards || []).map(([icon,title,desc]) => <div className="role-focus-card" key={title}><span>{icon}</span><b>{title}</b><small>{desc}</small></div>)}</div>
-        {roleId === "fisherman" && verified && <FishingIntelligence />}
         <div className="quick-grid quick-actions-grid">
           <button className="quick-action evidence-action" onClick={() => nav("evidence")}><span>◈</span><b>Evidence</b><small>{roleId === "researcher" ? "Source provenance and observations" : "See exactly what ORCA used"}</small><em>OPEN →</em></button>
           <button className="quick-action map-action" onClick={() => nav("map")}><span>⌖</span><b>Marine Map</b><small>{roleId === "authority" ? "Regional risk and spatial context" : roleId === "boat-operator" ? "Routes and operating conditions" : "Location and spatial context"}</small><em>OPEN →</em></button>
@@ -832,19 +825,6 @@ export default function App() {
         <div className="trust-strip"><b>DATA QUALITY</b><span className={dataQuality === "live" ? "good" : "warn"}>{dataQuality.toUpperCase()}</span><span>Weather: {weather?.source || "—"}</span><span>Ocean: {ocean?.source || "—"}</span><span>PFZ: {result?.fishing_zone?.status || "not checked"}</span></div>
       </>}
     </div>;
-  }
-
-  function FishingIntelligence() {
-    if (fishingIntelLoading) return <section className="panel-section"><PanelHeader kicker="FISHING OPPORTUNITY INTELLIGENCE" title="Analysing live PFZ + satellite + marine evidence…" /><div className="loading-line">ORCA is checking operational PFZ evidence, satellite indicators and hourly sea conditions.</div></section>;
-    if (!fishingIntel) return null;
-    const current = fishingIntel.current || {};
-    const best = fishingIntel.hourly?.filter(r => r.score != null).sort((a,b) => Number(a.score) - Number(b.score))[0];
-    return <section className="panel-section fishing-intel-panel">
-      <PanelHeader kicker="FISHING OPPORTUNITY INTELLIGENCE" title="Where and when does the evidence look more promising?" />
-      <p className="muted">ORCA uses the operational PFZ signal when available, plus live satellite SST/chlorophyll and hourly marine conditions. It does <b>not</b> claim a fish count or guarantee a catch from satellite data alone.</p>
-      <div className="metric-grid role-metric-grid"><Metric icon="🟣" label="PFZ signal" value={current.pfz_available ? "AVAILABLE" : "NOT AVAILABLE"} sub="INCOIS operational advisory when returned"/><Metric icon="🌡" label="Satellite SST" value={current.sst != null ? `${current.sst} °C` : "—"} sub="Recent satellite observation"/><Metric icon="🟢" label="Chlorophyll" value={current.chlorophyll != null ? `${current.chlorophyll}` : "—"} sub="Recent satellite observation"/><Metric icon="⏱" label="Best marine window" value={best ? prettyTime(`${String(best.hour).padStart(2,"0")}:00`) : "—"} sub={best ? `Lowest live stress score: ${best.score}/100` : "No valid hourly window"}/></div>
-      <div className="fishing-signal-card"><div><b>🎯 Fishing-area evidence</b><small>{(fishingIntel as any).pfz_coordinate_available ? "An authoritative PFZ location was returned and can be plotted." : "No authoritative PFZ coordinate was returned by the current machine-readable connector. ORCA will not invent a fish hotspot."}</small></div><div><b>📅 Season / historical intelligence</b><small>{fishingIntel.seasonal?.message || "CMFRI historical fisheries source is connected; species/zone seasonality must come from the published series."}</small></div><div><b>🗺 Official PFZ WebGIS</b><small><a href="https://www.incois.gov.in/MarineFisheries/PfzWebGis" target="_blank" rel="noreferrer">Open INCOIS PFZ WebGIS</a></small></div></div>
-    </section>;
   }
 
   function MapView() {
