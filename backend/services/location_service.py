@@ -1,68 +1,154 @@
+# backend/services/location_service.py
+
+from __future__ import annotations
+
 import requests
 
 
-def get_location_coordinates(location):
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
-    if not isinstance(location, str) or not location.strip():
-        return {
-            "status": "error",
-            "message": "Invalid location."
-        }
+HEADERS = {
+    "User-Agent": "ORCA-Marine-Ecosystem/1.0",
+    "Accept": "application/json",
+}
 
-    url = "https://geocoding-api.open-meteo.com/v1/search"
 
-    params = {
-        "name": location,
-        "count": 1,
-        "language": "en",
-        "format": "json"
-    }
+def search_location(query: str, limit: int = 5) -> list[dict]:
+    """
+    Search for a real-world location using OpenStreetMap Nominatim.
+
+    No coordinates are invented. If the service is unavailable, an empty
+    list is returned.
+    """
+
+    query = str(query or "").strip()
+
+    if not query:
+        return []
 
     try:
         response = requests.get(
-            url,
-            params=params,
-            timeout=10
+            NOMINATIM_URL,
+            params={
+                "q": query,
+                "format": "jsonv2",
+                "limit": max(1, min(limit, 10)),
+                "addressdetails": 1,
+            },
+            headers=HEADERS,
+            timeout=10,
         )
 
-        if response.status_code != 200:
-            raise Exception(
-                f"Geocoding API failed: HTTP {response.status_code}"
-            )
+        response.raise_for_status()
 
         data = response.json()
 
-        if "results" not in data or not data["results"]:
-            return {
-                "status": "error",
-                "message": "Location not found."
-            }
+        if not isinstance(data, list):
+            return []
 
-        result = data["results"][0]
+        results = []
 
-        return {
-            "status": "available",
-            "location": result["name"],
-            "latitude": result["latitude"],
-            "longitude": result["longitude"],
-            "country": result.get("country"),
-            "admin1": result.get("admin1"),
-            "source": "Open-Meteo Geocoding API"
-        }
+        for item in data:
+            try:
+                latitude = float(item["lat"])
+                longitude = float(item["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
 
-    except Exception as e:
+            results.append(
+                {
+                    "display_name": item.get(
+                        "display_name",
+                        f"{latitude:.4f}, {longitude:.4f}",
+                    ),
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "type": item.get("type"),
+                    "category": item.get("category"),
+                    "osm_type": item.get("osm_type"),
+                    "osm_id": item.get("osm_id"),
+                    "address": item.get("address", {}),
+                }
+            )
 
-        print("LOCATION ERROR:", e)
+        return results
 
-        return {
-            "status": "error",
-            "message": "Unable to fetch location coordinates."
-        }
+    except requests.RequestException:
+        return []
+    except ValueError:
+        return []
+    except Exception:
+        return []
 
 
-# Testing
-if __name__ == "__main__":
+def get_location(query: str) -> dict | None:
+    """
+    Return the first real geocoded result for a location query.
+    """
 
-    result = get_location_coordinates("Puri")
+    results = search_location(query, limit=1)
 
-    print(result)
+    if not results:
+        return None
+
+    return results[0]
+
+
+def is_valid_coordinates(latitude, longitude) -> bool:
+    """
+    Basic coordinate validation.
+    """
+
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return False
+
+    return -90 <= lat <= 90 and -180 <= lon <= 180
+
+
+def format_location_name(
+    latitude: float,
+    longitude: float,
+    fallback: str = "Selected location",
+) -> str:
+    """
+    Reverse-geocode a coordinate when possible.
+
+    Falls back to a coordinate label instead of inventing a place name.
+    """
+
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return fallback
+
+    try:
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "format": "jsonv2",
+                "zoom": 14,
+                "addressdetails": 1,
+            },
+            headers=HEADERS,
+            timeout=10,
+        )
+
+        response.raise_for_status()
+
+        data = response.json()
+
+        display_name = data.get("display_name")
+
+        if display_name:
+            return str(display_name)
+
+    except Exception:
+        pass
+
+    return f"{lat:.4f}, {lon:.4f}"

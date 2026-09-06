@@ -1,150 +1,163 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-const LANGUAGES = [
-  { code: "en", native: "English", name: "English" },
-  { code: "hi", native: "हिन्दी", name: "Hindi" },
-  { code: "bn", native: "বাংলা", name: "Bengali" },
-  { code: "te", native: "తెలుగు", name: "Telugu" },
-  { code: "mr", native: "मराठी", name: "Marathi" },
-  { code: "ta", native: "தமிழ்", name: "Tamil" },
-  { code: "gu", native: "ગુજરાતી", name: "Gujarati" },
-  { code: "kn", native: "ಕನ್ನಡ", name: "Kannada" },
-  { code: "ml", native: "മലയാളം", name: "Malayalam" },
-  { code: "pa", native: "ਪੰਜਾਬੀ", name: "Punjabi" },
-  { code: "or", native: "ଓଡ଼ିଆ", name: "Odia" },
-  { code: "as", native: "অসমীয়া", name: "Assamese" },
-  { code: "ur", native: "اردو", name: "Urdu" },
-  { code: "ne", native: "नेपाली", name: "Nepali" },
-  { code: "es", native: "Español", name: "Spanish" },
-  { code: "fr", native: "Français", name: "French" },
-  { code: "de", native: "Deutsch", name: "German" },
-  { code: "pt", native: "Português", name: "Portuguese" },
-  { code: "it", native: "Italiano", name: "Italian" },
-  { code: "ru", native: "Русский", name: "Russian" },
-  { code: "ja", native: "日本語", name: "Japanese" },
-  { code: "ko", native: "한국어", name: "Korean" },
-  { code: "ar", native: "العربية", name: "Arabic" },
-];
+import {
+  LANGUAGES,
+  saveLanguage,
+  useOrcaLanguage,
+  type LanguageCode,
+} from "../i18n";
 
-function Navbar() {
-  const [languageOpen, setLanguageOpen] = useState(false);
+export default function Navbar() {
+  const {
+    language,
+    languageInfo,
+    t,
+  } = useOrcaLanguage();
 
-  const [selectedLanguage, setSelectedLanguage] = useState(() => {
-    try {
-      return localStorage.getItem("orca-language") || "en";
-    } catch {
-      return "en";
-    }
-  });
+  const [open, setOpen] =
+    useState(false);
 
-  const currentLanguage =
-    LANGUAGES.find(
-      (language) => language.code === selectedLanguage
-    ) || LANGUAGES[0];
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      const target =
+        event.target as HTMLElement;
 
-  function handleLanguageSelect(code: string) {
-    setSelectedLanguage(code);
+      if (
+        !target.closest(
+          ".orca-language-selector"
+        )
+      ) {
+        setOpen(false);
+      }
+    };
 
-    try {
-      localStorage.setItem("orca-language", code);
-    } catch {
-      // Ignore localStorage errors
-    }
-
-    setLanguageOpen(false);
-
-    window.dispatchEvent(
-      new CustomEvent("orca-language-change", {
-        detail: {
-          language: code,
-        },
-      })
+    document.addEventListener(
+      "click",
+      close
     );
-  }
+
+    return () => {
+      document.removeEventListener(
+        "click",
+        close
+      );
+    };
+  }, []);
+
+  const handleLanguageChange = (
+    code: LanguageCode
+  ) => {
+    saveLanguage(code);
+
+    setOpen(false);
+  };
 
   return (
     <nav className="navbar">
-      {/* LEFT */}
-      <div className="navbar-brand">
-        <div className="orca-logo">🐋</div>
+      <div className="navbar-left">
+        <div className="orca-logo">
+          ORCA
+        </div>
 
-        <div>
-          <h2>ORCA</h2>
+        <div className="navbar-links">
+          <button type="button">
+            {t("nav.home")}
+          </button>
 
-          <span>Marine Ecosystem Intelligence</span>
+          <button type="button">
+            {t("nav.askOrca")}
+          </button>
+
+          <button type="button">
+            {t("nav.marineMap")}
+          </button>
+
+          <button type="button">
+            {t("nav.about")}
+          </button>
         </div>
       </div>
 
-      {/* RIGHT */}
       <div className="navbar-right">
-        {/* LANGUAGE SELECTOR */}
-        <div className="language-selector">
+        <div className="system-status">
+          <span className="status-dot" />
+
+          <span>
+            {t("nav.systemReady")}
+          </span>
+        </div>
+
+        <div
+          className="orca-language-selector"
+          style={{
+            position: "relative",
+          }}
+        >
           <button
             type="button"
             className="language-button"
-            onClick={() =>
-              setLanguageOpen((previous) => !previous)
-            }
-            aria-haspopup="true"
-            aria-expanded={languageOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+
+              setOpen((value) => !value);
+            }}
           >
-            <span className="language-icon">🌐</span>
+            <span>
+              {languageInfo.native}
+            </span>
 
-            <span>{currentLanguage.native}</span>
-
-            <span className="language-arrow">
-              {languageOpen ? "▲" : "▼"}
+            <span>
+              {open ? "▲" : "▼"}
             </span>
           </button>
 
-          {languageOpen && (
-            <div className="language-menu">
-              <div className="language-menu-title">
-                SELECT LANGUAGE · 23 LANGUAGES
+          {open && (
+            <div
+              className="language-dropdown"
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "calc(100% + 8px)",
+                zIndex: 9999,
+                minWidth: "230px",
+                maxHeight: "420px",
+                overflowY: "auto",
+              }}
+            >
+              <div className="language-dropdown-title">
+                {t("language.select")}
               </div>
 
-              <div className="language-list">
-                {LANGUAGES.map((language) => (
+              {LANGUAGES.map(
+                (item) => (
                   <button
-                    key={language.code}
                     type="button"
-                    className={`language-option ${
-                      selectedLanguage === language.code
-                        ? "active"
-                        : ""
-                    }`}
+                    key={item.code}
                     onClick={() =>
-                      handleLanguageSelect(language.code)
+                      handleLanguageChange(
+                        item.code
+                      )
+                    }
+                    className={
+                      item.code === language
+                        ? "language-option selected"
+                        : "language-option"
                     }
                   >
-                    <span className="language-native">
-                      {language.native}
+                    <span>
+                      {item.native}
                     </span>
 
-                    <span className="language-name">
-                      {language.name}
-                    </span>
-
-                    {selectedLanguage === language.code && (
-                      <span className="language-check">
-                        ✓
-                      </span>
+                    {item.code === language && (
+                      <span>✓</span>
                     )}
                   </button>
-                ))}
-              </div>
+                )
+              )}
             </div>
           )}
-        </div>
-
-        {/* SYSTEM STATUS */}
-        <div className="navbar-status">
-          <span className="status-dot" />
-          System Online
         </div>
       </div>
     </nav>
   );
 }
-
-export default Navbar;

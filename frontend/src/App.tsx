@@ -1,2515 +1,997 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import "./App.css";
-
-import Navbar from "./components/Navbar";
-import QueryForm from "./components/QueryForm";
-import RiskCard from "./components/RiskCard";
-import MarineCards from "./components/MarineCards";
-import RiskBreakdown from "./components/RiskBreakdown";
-import EvidencePanel from "./components/EvidencePanel";
 import MarineMap from "./components/MarineMap";
-import WhatIfPanel from "./components/WhatIfPanel";
-import LoadingScreen from "./components/LoadingScreen";
-import ErrorScreen from "./components/ErrorScreen";
-import WelcomeScreen from "./components/WelcomeScreen";
-
-import { demoData } from "./data/demoData";
-import { askOrca } from "./services/api";
-
-type AssessmentLocation = {
-  name: string;
-  latitude: number;
-  longitude: number;
-};
-
-type Assessment = {
-  answer: string;
-
-  risk: {
-    score: number;
-    level: string;
-    message: string;
-  };
-
-  weather: {
-    temperature: number;
-    wind_speed: number;
-    precipitation: number;
-  };
-
-  ocean: {
-    wave_height: number;
-    wave_period: number;
-    current_speed: number;
-    sst: number;
-  };
-
-  satellite: {
-    pfz_available: boolean;
-    pfz: string;
-  };
-
-  gis: {
-    restricted_zone: boolean;
-    location_name: string;
-  };
-
-  breakdown: {
-    wind?: number;
-    waves?: number;
-    wave?: number;
-    weather?: number;
-    ocean?: number;
-    pfz?: number;
-    gis?: number;
-  };
-
-  verification: {
-    verified: boolean;
-    confidence: number;
-  };
-};
-
-/* =========================================================
-   TRANSLATIONS
-========================================================= */
-
-type Translation = {
-  marineEcosystem: string;
-  systemOnline: string;
-  multiAgent: string;
-  title1: string;
-  title2: string;
-  description: string;
-  oceanIntelligence: string;
-  weatherAnalysis: string;
-  satelliteData: string;
-  gisIntelligence: string;
-  aiReasoning: string;
-  askOrca: string;
-  questionTitle: string;
-  questionDescription: string;
-  decisionSupport: string;
-  collaborativeNetwork: string;
-  analyzing: string;
-  systemReady: string;
-  ocean: string;
-  wavesCurrents: string;
-  weather: string;
-  windRainfall: string;
-  satellite: string;
-  marineObservations: string;
-  gis: string;
-  locationConstraints: string;
-  orcaReasoner: string;
-  finalAssessment: string;
-  assessment: string;
-  marineRisk: string;
-  liveIntelligence: string;
-  recommendation: string;
-  recommendationDescription: string;
-  marineConditions: string;
-  environmentalOverview: string;
-  spatialIntelligence: string;
-  reasoning: string;
-  riskBreakdown: string;
-  evidence: string;
-  dataVerification: string;
-  footerDescription: string;
-  footerText: string;
-  footerTech: string;
-  selectLanguage: string;
-  low: string;
-  moderate: string;
-  high: string;
-  severe: string;
-};
-
-const translations: Record<string, Translation> = {
-  en: {
-    marineEcosystem: "Marine Ecosystem Intelligence",
-    systemOnline: "System Online",
-    multiAgent: "MULTI-AGENT MARINE INTELLIGENCE",
-    title1: "Understand the ocean.",
-    title2: "Make better decisions.",
-    description:
-      "ORCA combines marine, weather, ocean, satellite and geographic intelligence to reason about real-world marine conditions.",
-    oceanIntelligence: "🌊 Ocean Intelligence",
-    weatherAnalysis: "☁ Weather Analysis",
-    satelliteData: "🛰 Satellite Data",
-    gisIntelligence: "📍 GIS Intelligence",
-    aiReasoning: "🤖 AI Reasoning",
-    askOrca: "ASK ORCA",
-    questionTitle: "Ask a question about the marine environment.",
-    questionDescription:
-      "Tell ORCA what you want to know, select a location and choose your departure time. Coordinates are handled automatically.",
-    decisionSupport: "● AI DECISION SUPPORT",
-    collaborativeNetwork: "Collaborative Agent Network",
-    analyzing: "ANALYZING",
-    systemReady: "SYSTEM READY",
-    ocean: "OCEAN",
-    wavesCurrents: "Waves & currents",
-    weather: "WEATHER",
-    windRainfall: "Wind & rainfall",
-    satellite: "SATELLITE",
-    marineObservations: "Marine observations",
-    gis: "GIS",
-    locationConstraints: "Location constraints",
-    orcaReasoner: "ORCA REASONER",
-    finalAssessment: "Final assessment",
-    assessment: "ORCA ASSESSMENT",
-    marineRisk: "Marine Risk Assessment",
-    liveIntelligence: "LIVE INTELLIGENCE",
-    recommendation: "ORCA RECOMMENDATION",
-    recommendationDescription:
-      "ORCA combines multiple environmental intelligence sources to generate this decision-support assessment.",
-    marineConditions: "MARINE CONDITIONS",
-    environmentalOverview: "Environmental Overview",
-    spatialIntelligence: "SPATIAL INTELLIGENCE",
-    reasoning: "REASONING",
-    riskBreakdown: "Risk Breakdown",
-    evidence: "EVIDENCE",
-    dataVerification: "Data Verification",
-    footerDescription:
-      "Marine Ecosystem Reasoning with Collaborative Agents",
-    footerText: "AI-powered marine decision support",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "SELECT LANGUAGE · 23 LANGUAGES",
-    low: "LOW",
-    moderate: "MODERATE",
-    high: "HIGH",
-    severe: "SEVERE",
-  },
-
-  hi: {
-    marineEcosystem: "समुद्री पारिस्थितिकी बुद्धिमत्ता",
-    systemOnline: "सिस्टम ऑनलाइन",
-    multiAgent: "मल्टी-एजेंट समुद्री बुद्धिमत्ता",
-    title1: "समुद्र को समझें।",
-    title2: "बेहतर निर्णय लें।",
-    description:
-      "ORCA वास्तविक समुद्री परिस्थितियों को समझने के लिए समुद्र, मौसम, उपग्रह और भौगोलिक जानकारी को जोड़ता है।",
-    oceanIntelligence: "🌊 महासागर बुद्धिमत्ता",
-    weatherAnalysis: "☁ मौसम विश्लेषण",
-    satelliteData: "🛰 उपग्रह डेटा",
-    gisIntelligence: "📍 GIS बुद्धिमत्ता",
-    aiReasoning: "🤖 AI तर्क",
-    askOrca: "ORCA से पूछें",
-    questionTitle: "समुद्री पर्यावरण के बारे में प्रश्न पूछें।",
-    questionDescription:
-      "ORCA को बताएं कि आप क्या जानना चाहते हैं, स्थान चुनें और प्रस्थान का समय चुनें। निर्देशांक अपने आप संभाले जाएंगे।",
-    decisionSupport: "● AI निर्णय सहायता",
-    collaborativeNetwork: "सहयोगी एजेंट नेटवर्क",
-    analyzing: "विश्लेषण हो रहा है",
-    systemReady: "सिस्टम तैयार",
-    ocean: "महासागर",
-    wavesCurrents: "लहरें और धाराएँ",
-    weather: "मौसम",
-    windRainfall: "हवा और वर्षा",
-    satellite: "उपग्रह",
-    marineObservations: "समुद्री अवलोकन",
-    gis: "GIS",
-    locationConstraints: "स्थान संबंधी सीमाएँ",
-    orcaReasoner: "ORCA रीजनर",
-    finalAssessment: "अंतिम आकलन",
-    assessment: "ORCA आकलन",
-    marineRisk: "समुद्री जोखिम आकलन",
-    liveIntelligence: "लाइव इंटेलिजेंस",
-    recommendation: "ORCA अनुशंसा",
-    recommendationDescription:
-      "ORCA इस निर्णय-सहायता आकलन को तैयार करने के लिए कई पर्यावरणीय इंटेलिजेंस स्रोतों को जोड़ता है।",
-    marineConditions: "समुद्री परिस्थितियाँ",
-    environmentalOverview: "पर्यावरणीय अवलोकन",
-    spatialIntelligence: "स्थानिक इंटेलिजेंस",
-    reasoning: "तर्क",
-    riskBreakdown: "जोखिम विवरण",
-    evidence: "साक्ष्य",
-    dataVerification: "डेटा सत्यापन",
-    footerDescription:
-      "सहयोगी एजेंटों के साथ समुद्री पारिस्थितिकी तर्क",
-    footerText: "AI-संचालित समुद्री निर्णय सहायता",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "भाषा चुनें · 23 भाषाएँ",
-    low: "कम",
-    moderate: "मध्यम",
-    high: "उच्च",
-    severe: "गंभीर",
-  },
-
-  bn: {
-    marineEcosystem: "সামুদ্রিক বাস্তুতন্ত্র বুদ্ধিমত্তা",
-    systemOnline: "সিস্টেম অনলাইন",
-    multiAgent: "মাল্টি-এজেন্ট সামুদ্রিক বুদ্ধিমত্তা",
-    title1: "সমুদ্রকে বুঝুন।",
-    title2: "আরও ভালো সিদ্ধান্ত নিন।",
-    description:
-      "ORCA বাস্তব সামুদ্রিক পরিস্থিতি বিশ্লেষণ করতে সামুদ্রিক, আবহাওয়া, মহাসাগর, স্যাটেলাইট এবং ভৌগোলিক তথ্য একত্রিত করে।",
-    oceanIntelligence: "🌊 মহাসাগরীয় বুদ্ধিমত্তা",
-    weatherAnalysis: "☁ আবহাওয়া বিশ্লেষণ",
-    satelliteData: "🛰 স্যাটেলাইট তথ্য",
-    gisIntelligence: "📍 GIS বুদ্ধিমত্তা",
-    aiReasoning: "🤖 AI যুক্তি",
-    askOrca: "ORCA-কে জিজ্ঞাসা করুন",
-    questionTitle: "সামুদ্রিক পরিবেশ সম্পর্কে প্রশ্ন করুন।",
-    questionDescription:
-      "আপনি কী জানতে চান তা ORCA-কে বলুন, একটি অবস্থান নির্বাচন করুন এবং প্রস্থানের সময় বেছে নিন।",
-    decisionSupport: "● AI সিদ্ধান্ত সহায়তা",
-    collaborativeNetwork: "সহযোগী এজেন্ট নেটওয়ার্ক",
-    analyzing: "বিশ্লেষণ চলছে",
-    systemReady: "সিস্টেম প্রস্তুত",
-    ocean: "মহাসাগর",
-    wavesCurrents: "ঢেউ ও স্রোত",
-    weather: "আবহাওয়া",
-    windRainfall: "বাতাস ও বৃষ্টি",
-    satellite: "স্যাটেলাইট",
-    marineObservations: "সামুদ্রিক পর্যবেক্ষণ",
-    gis: "GIS",
-    locationConstraints: "অবস্থান সীমাবদ্ধতা",
-    orcaReasoner: "ORCA রিজনার",
-    finalAssessment: "চূড়ান্ত মূল্যায়ন",
-    assessment: "ORCA মূল্যায়ন",
-    marineRisk: "সামুদ্রিক ঝুঁকি মূল্যায়ন",
-    liveIntelligence: "লাইভ ইন্টেলিজেন্স",
-    recommendation: "ORCA সুপারিশ",
-    recommendationDescription:
-      "ORCA এই সিদ্ধান্ত সহায়তা মূল্যায়ন তৈরি করতে একাধিক পরিবেশগত তথ্য উৎস একত্রিত করে।",
-    marineConditions: "সামুদ্রিক পরিস্থিতি",
-    environmentalOverview: "পরিবেশগত সংক্ষিপ্তসার",
-    spatialIntelligence: "স্থানিক বুদ্ধিমত্তা",
-    reasoning: "যুক্তি",
-    riskBreakdown: "ঝুঁকি বিশ্লেষণ",
-    evidence: "প্রমাণ",
-    dataVerification: "তথ্য যাচাই",
-    footerDescription:
-      "সহযোগী এজেন্টের মাধ্যমে সামুদ্রিক বাস্তুতন্ত্র বিশ্লেষণ",
-    footerText: "AI-চালিত সামুদ্রিক সিদ্ধান্ত সহায়তা",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ভাষা নির্বাচন করুন · ২৩টি ভাষা",
-    low: "কম",
-    moderate: "মাঝারি",
-    high: "উচ্চ",
-    severe: "গুরুতর",
-  },
-
-  te: {
-    marineEcosystem: "సముద్ర పర్యావరణ వ్యవస్థ మేధస్సు",
-    systemOnline: "సిస్టమ్ ఆన్‌లైన్",
-    multiAgent: "మల్టీ-ఏజెంట్ సముద్ర మేధస్సు",
-    title1: "సముద్రాన్ని అర్థం చేసుకోండి.",
-    title2: "మెరుగైన నిర్ణయాలు తీసుకోండి.",
-    description:
-      "ORCA సముద్ర, వాతావరణ, ఉపగ్రహ మరియు భౌగోళిక సమాచారాన్ని కలిపి సముద్ర పరిస్థితులను విశ్లేషిస్తుంది.",
-    oceanIntelligence: "🌊 సముద్ర మేధస్సు",
-    weatherAnalysis: "☁ వాతావరణ విశ్లేషణ",
-    satelliteData: "🛰 ఉపగ్రహ డేటా",
-    gisIntelligence: "📍 GIS మేధస్సు",
-    aiReasoning: "🤖 AI విశ్లేషణ",
-    askOrca: "ORCAని అడగండి",
-    questionTitle: "సముద్ర పర్యావరణం గురించి ప్రశ్న అడగండి.",
-    questionDescription:
-      "మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారో ORCAకి చెప్పండి, ప్రదేశం మరియు బయలుదేరే సమయాన్ని ఎంచుకోండి.",
-    decisionSupport: "● AI నిర్ణయ సహాయం",
-    collaborativeNetwork: "సహకార ఏజెంట్ నెట్‌వర్క్",
-    analyzing: "విశ్లేషిస్తోంది",
-    systemReady: "సిస్టమ్ సిద్ధంగా ఉంది",
-    ocean: "సముద్రం",
-    wavesCurrents: "అలలు మరియు ప్రవాహాలు",
-    weather: "వాతావరణం",
-    windRainfall: "గాలి మరియు వర్షపాతం",
-    satellite: "ఉపగ్రహం",
-    marineObservations: "సముద్ర పరిశీలనలు",
-    gis: "GIS",
-    locationConstraints: "స్థాన పరిమితులు",
-    orcaReasoner: "ORCA రీజనర్",
-    finalAssessment: "చివరి అంచనా",
-    assessment: "ORCA అంచనా",
-    marineRisk: "సముద్ర ప్రమాద అంచనా",
-    liveIntelligence: "లైవ్ ఇంటెలిజెన్స్",
-    recommendation: "ORCA సిఫార్సు",
-    recommendationDescription:
-      "ORCA ఈ నిర్ణయ సహాయ అంచనాను రూపొందించడానికి అనేక పర్యావరణ సమాచార వనరులను కలుపుతుంది.",
-    marineConditions: "సముద్ర పరిస్థితులు",
-    environmentalOverview: "పర్యావరణ అవలోకనం",
-    spatialIntelligence: "స్థానిక మేధస్సు",
-    reasoning: "విశ్లేషణ",
-    riskBreakdown: "ప్రమాద విభజన",
-    evidence: "ఆధారాలు",
-    dataVerification: "డేటా ధృవీకరణ",
-    footerDescription:
-      "సహకార ఏజెంట్లతో సముద్ర పర్యావరణ విశ్లేషణ",
-    footerText: "AI ఆధారిత సముద్ర నిర్ణయ సహాయం",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "భాషను ఎంచుకోండి · 23 భాషలు",
-    low: "తక్కువ",
-    moderate: "మధ్యస్థం",
-    high: "అధిక",
-    severe: "తీవ్రం",
-  },
-
-  mr: {
-    marineEcosystem: "सागरीय परिसंस्था बुद्धिमत्ता",
-    systemOnline: "सिस्टम ऑनलाइन",
-    multiAgent: "मल्टी-एजंट सागरी बुद्धिमत्ता",
-    title1: "समुद्र समजून घ्या.",
-    title2: "चांगले निर्णय घ्या.",
-    description:
-      "ORCA सागरी, हवामान, उपग्रह आणि भौगोलिक माहिती एकत्र करून वास्तविक समुद्री परिस्थितीचे विश्लेषण करते.",
-    oceanIntelligence: "🌊 महासागर बुद्धिमत्ता",
-    weatherAnalysis: "☁ हवामान विश्लेषण",
-    satelliteData: "🛰 उपग्रह डेटा",
-    gisIntelligence: "📍 GIS बुद्धिमत्ता",
-    aiReasoning: "🤖 AI विश्लेषण",
-    askOrca: "ORCA ला विचारा",
-    questionTitle: "सागरी पर्यावरणाबद्दल प्रश्न विचारा.",
-    questionDescription:
-      "तुम्हाला काय जाणून घ्यायचे आहे ते ORCA ला सांगा, स्थान आणि प्रस्थानाची वेळ निवडा.",
-    decisionSupport: "● AI निर्णय सहाय्य",
-    collaborativeNetwork: "सहयोगी एजंट नेटवर्क",
-    analyzing: "विश्लेषण सुरू आहे",
-    systemReady: "सिस्टम तयार",
-    ocean: "महासागर",
-    wavesCurrents: "लाटा आणि प्रवाह",
-    weather: "हवामान",
-    windRainfall: "वारा आणि पाऊस",
-    satellite: "उपग्रह",
-    marineObservations: "सागरी निरीक्षणे",
-    gis: "GIS",
-    locationConstraints: "स्थान मर्यादा",
-    orcaReasoner: "ORCA रीझनर",
-    finalAssessment: "अंतिम मूल्यांकन",
-    assessment: "ORCA मूल्यांकन",
-    marineRisk: "सागरी जोखीम मूल्यांकन",
-    liveIntelligence: "लाइव्ह इंटेलिजन्स",
-    recommendation: "ORCA शिफारस",
-    recommendationDescription:
-      "ORCA हे निर्णय सहाय्य मूल्यांकन तयार करण्यासाठी अनेक पर्यावरणीय माहिती स्रोत एकत्र करते.",
-    marineConditions: "सागरी परिस्थिती",
-    environmentalOverview: "पर्यावरणीय आढावा",
-    spatialIntelligence: "स्थानिक बुद्धिमत्ता",
-    reasoning: "तर्क",
-    riskBreakdown: "जोखीम विश्लेषण",
-    evidence: "पुरावे",
-    dataVerification: "डेटा पडताळणी",
-    footerDescription:
-      "सहयोगी एजंट्ससह सागरी परिसंस्था विश्लेषण",
-    footerText: "AI-आधारित सागरी निर्णय सहाय्य",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "भाषा निवडा · 23 भाषा",
-    low: "कमी",
-    moderate: "मध्यम",
-    high: "उच्च",
-    severe: "गंभीर",
-  },
-
-  ta: {
-    marineEcosystem: "கடல் சுற்றுச்சூழல் நுண்ணறிவு",
-    systemOnline: "கணினி ஆன்லைனில் உள்ளது",
-    multiAgent: "பல முகவர் கடல் நுண்ணறிவு",
-    title1: "கடலைப் புரிந்துகொள்ளுங்கள்.",
-    title2: "சிறந்த முடிவுகளை எடுங்கள்.",
-    description:
-      "ORCA கடல், வானிலை, செயற்கைக்கோள் மற்றும் புவியியல் தகவல்களை இணைத்து உண்மையான கடல் நிலைமைகளை பகுப்பாய்வு செய்கிறது.",
-    oceanIntelligence: "🌊 கடல் நுண்ணறிவு",
-    weatherAnalysis: "☁ வானிலை பகுப்பாய்வு",
-    satelliteData: "🛰 செயற்கைக்கோள் தரவு",
-    gisIntelligence: "📍 GIS நுண்ணறிவு",
-    aiReasoning: "🤖 AI பகுத்தறிவு",
-    askOrca: "ORCA-விடம் கேளுங்கள்",
-    questionTitle: "கடல் சூழல் பற்றி கேள்வி கேளுங்கள்.",
-    questionDescription:
-      "நீங்கள் தெரிந்துகொள்ள விரும்புவதை ORCA-விடம் கூறி, இடம் மற்றும் புறப்படும் நேரத்தைத் தேர்ந்தெடுக்கவும்.",
-    decisionSupport: "● AI முடிவு ஆதரவு",
-    collaborativeNetwork: "கூட்டு முகவர் வலையமைப்பு",
-    analyzing: "பகுப்பாய்வு நடைபெறுகிறது",
-    systemReady: "கணினி தயார்",
-    ocean: "கடல்",
-    wavesCurrents: "அலைகள் மற்றும் நீரோட்டங்கள்",
-    weather: "வானிலை",
-    windRainfall: "காற்று மற்றும் மழை",
-    satellite: "செயற்கைக்கோள்",
-    marineObservations: "கடல் கண்காணிப்புகள்",
-    gis: "GIS",
-    locationConstraints: "இடக் கட்டுப்பாடுகள்",
-    orcaReasoner: "ORCA பகுத்தறிவாளர்",
-    finalAssessment: "இறுதி மதிப்பீடு",
-    assessment: "ORCA மதிப்பீடு",
-    marineRisk: "கடல் ஆபத்து மதிப்பீடு",
-    liveIntelligence: "நேரடி நுண்ணறிவு",
-    recommendation: "ORCA பரிந்துரை",
-    recommendationDescription:
-      "இந்த முடிவு ஆதரவு மதிப்பீட்டை உருவாக்க ORCA பல சுற்றுச்சூழல் தகவல் ஆதாரங்களை இணைக்கிறது.",
-    marineConditions: "கடல் நிலைமைகள்",
-    environmentalOverview: "சுற்றுச்சூழல் மேலோட்டம்",
-    spatialIntelligence: "இடவியல் நுண்ணறிவு",
-    reasoning: "பகுத்தறிவு",
-    riskBreakdown: "ஆபத்து பகுப்பாய்வு",
-    evidence: "ஆதாரம்",
-    dataVerification: "தரவு சரிபார்ப்பு",
-    footerDescription:
-      "கூட்டு முகவர்களுடன் கடல் சுற்றுச்சூழல் பகுத்தறிவு",
-    footerText: "AI இயக்கப்படும் கடல் முடிவு ஆதரவு",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "மொழியைத் தேர்ந்தெடுக்கவும் · 23 மொழிகள்",
-    low: "குறைவு",
-    moderate: "மிதமான",
-    high: "அதிகம்",
-    severe: "கடுமையான",
-  },
-
-  gu: {
-    marineEcosystem: "દરિયાઈ પર્યાવરણ બુદ્ધિમત્તા",
-    systemOnline: "સિસ્ટમ ઓનલાઈન",
-    multiAgent: "મલ્ટી-એજન્ટ મરીન ઇન્ટેલિજન્સ",
-    title1: "સમુદ્રને સમજો.",
-    title2: "વધુ સારા નિર્ણયો લો.",
-    description:
-      "ORCA વાસ્તવિક દરિયાઈ પરિસ્થિતિઓનું વિશ્લેષણ કરવા માટે દરિયાઈ, હવામાન, સેટેલાઇટ અને ભૌગોલિક માહિતી જોડે છે.",
-    oceanIntelligence: "🌊 મહાસાગર બુદ્ધિમત્તા",
-    weatherAnalysis: "☁ હવામાન વિશ્લેષણ",
-    satelliteData: "🛰 સેટેલાઇટ ડેટા",
-    gisIntelligence: "📍 GIS બુદ્ધિમત્તા",
-    aiReasoning: "🤖 AI વિશ્લેષણ",
-    askOrca: "ORCA ને પૂછો",
-    questionTitle: "દરિયાઈ પર્યાવરણ વિશે પ્રશ્ન પૂછો.",
-    questionDescription:
-      "તમે શું જાણવા માંગો છો તે ORCA ને કહો, સ્થાન અને પ્રસ્થાનનો સમય પસંદ કરો.",
-    decisionSupport: "● AI નિર્ણય સહાય",
-    collaborativeNetwork: "સહયોગી એજન્ટ નેટવર્ક",
-    analyzing: "વિશ્લેષણ થઈ રહ્યું છે",
-    systemReady: "સિસ્ટમ તૈયાર",
-    ocean: "મહાસાગર",
-    wavesCurrents: "મોજાં અને પ્રવાહો",
-    weather: "હવામાન",
-    windRainfall: "પવન અને વરસાદ",
-    satellite: "સેટેલાઇટ",
-    marineObservations: "દરિયાઈ અવલોકનો",
-    gis: "GIS",
-    locationConstraints: "સ્થાન મર્યાદાઓ",
-    orcaReasoner: "ORCA રીઝનર",
-    finalAssessment: "અંતિમ મૂલ્યાંકન",
-    assessment: "ORCA મૂલ્યાંકન",
-    marineRisk: "દરિયાઈ જોખમ મૂલ્યાંકન",
-    liveIntelligence: "લાઇવ ઇન્ટેલિજન્સ",
-    recommendation: "ORCA ભલામણ",
-    recommendationDescription:
-      "ORCA આ નિર્ણય સહાય મૂલ્યાંકન બનાવવા માટે અનેક પર્યાવરણીય માહિતી સ્ત્રોતોને જોડે છે.",
-    marineConditions: "દરિયાઈ પરિસ્થિતિઓ",
-    environmentalOverview: "પર્યાવરણીય ઝાંખી",
-    spatialIntelligence: "સ્થાનિક બુદ્ધિમત્તા",
-    reasoning: "તર્ક",
-    riskBreakdown: "જોખમ વિશ્લેષણ",
-    evidence: "પુરાવા",
-    dataVerification: "ડેટા ચકાસણી",
-    footerDescription:
-      "સહયોગી એજન્ટ્સ સાથે દરિયાઈ પર્યાવરણનું વિશ્લેષણ",
-    footerText: "AI આધારિત દરિયાઈ નિર્ણય સહાય",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ભાષા પસંદ કરો · 23 ભાષાઓ",
-    low: "નીચું",
-    moderate: "મધ્યમ",
-    high: "ઉચ્ચ",
-    severe: "ગંભીર",
-  },
-
-  kn: {
-    marineEcosystem: "ಸಾಗರ ಪರಿಸರ ವ್ಯವಸ್ಥೆಯ ಬುದ್ಧಿಮತ್ತೆ",
-    systemOnline: "ಸಿಸ್ಟಮ್ ಆನ್‌ಲೈನ್",
-    multiAgent: "ಮಲ್ಟಿ-ಏಜೆಂಟ್ ಸಾಗರ ಬುದ್ಧಿಮತ್ತೆ",
-    title1: "ಸಾಗರವನ್ನು ಅರ್ಥಮಾಡಿಕೊಳ್ಳಿ.",
-    title2: "ಉತ್ತಮ ನಿರ್ಧಾರಗಳನ್ನು ತೆಗೆದುಕೊಳ್ಳಿ.",
-    description:
-      "ORCA ನೈಜ ಸಾಗರ ಪರಿಸ್ಥಿತಿಗಳನ್ನು ವಿಶ್ಲೇಷಿಸಲು ಸಾಗರ, ಹವಾಮಾನ, ಉಪಗ್ರಹ ಮತ್ತು ಭೌಗೋಳಿಕ ಮಾಹಿತಿಯನ್ನು ಸಂಯೋಜಿಸುತ್ತದೆ.",
-    oceanIntelligence: "🌊 ಸಾಗರ ಬುದ್ಧಿಮತ್ತೆ",
-    weatherAnalysis: "☁ ಹವಾಮಾನ ವಿಶ್ಲೇಷಣೆ",
-    satelliteData: "🛰 ಉಪಗ್ರಹ ಡೇಟಾ",
-    gisIntelligence: "📍 GIS ಬುದ್ಧಿಮತ್ತೆ",
-    aiReasoning: "🤖 AI ವಿಶ್ಲೇಷಣೆ",
-    askOrca: "ORCA ಅನ್ನು ಕೇಳಿ",
-    questionTitle: "ಸಾಗರ ಪರಿಸರದ ಬಗ್ಗೆ ಪ್ರಶ್ನೆ ಕೇಳಿ.",
-    questionDescription:
-      "ನೀವು ಏನು ತಿಳಿದುಕೊಳ್ಳಲು ಬಯಸುತ್ತೀರಿ ಎಂದು ORCAಗೆ ತಿಳಿಸಿ, ಸ್ಥಳ ಮತ್ತು ಹೊರಡುವ ಸಮಯವನ್ನು ಆಯ್ಕೆಮಾಡಿ.",
-    decisionSupport: "● AI ನಿರ್ಧಾರ ಸಹಾಯ",
-    collaborativeNetwork: "ಸಹಯೋಗಿ ಏಜೆಂಟ್ ನೆಟ್‌ವರ್ಕ್",
-    analyzing: "ವಿಶ್ಲೇಷಿಸಲಾಗುತ್ತಿದೆ",
-    systemReady: "ಸಿಸ್ಟಮ್ ಸಿದ್ಧವಾಗಿದೆ",
-    ocean: "ಸಾಗರ",
-    wavesCurrents: "ಅಲೆಗಳು ಮತ್ತು ಪ್ರವಾಹಗಳು",
-    weather: "ಹವಾಮಾನ",
-    windRainfall: "ಗಾಳಿ ಮತ್ತು ಮಳೆ",
-    satellite: "ಉಪಗ್ರಹ",
-    marineObservations: "ಸಾಗರ ವೀಕ್ಷಣೆಗಳು",
-    gis: "GIS",
-    locationConstraints: "ಸ್ಥಳದ ಮಿತಿಗಳು",
-    orcaReasoner: "ORCA ರೀಸನರ್",
-    finalAssessment: "ಅಂತಿಮ ಮೌಲ್ಯಮಾಪನ",
-    assessment: "ORCA ಮೌಲ್ಯಮಾಪನ",
-    marineRisk: "ಸಾಗರ ಅಪಾಯ ಮೌಲ್ಯಮಾಪನ",
-    liveIntelligence: "ಲೈವ್ ಇಂಟೆಲಿಜೆನ್ಸ್",
-    recommendation: "ORCA ಶಿಫಾರಸು",
-    recommendationDescription:
-      "ಈ ನಿರ್ಧಾರ ಸಹಾಯ ಮೌಲ್ಯಮಾಪನವನ್ನು ರಚಿಸಲು ORCA ಅನೇಕ ಪರಿಸರ ಮಾಹಿತಿ ಮೂಲಗಳನ್ನು ಸಂಯೋಜಿಸುತ್ತದೆ.",
-    marineConditions: "ಸಾಗರ ಪರಿಸ್ಥಿತಿಗಳು",
-    environmentalOverview: "ಪರಿಸರ ಅವಲೋಕನ",
-    spatialIntelligence: "ಸ್ಥಳೀಯ ಬುದ್ಧಿಮತ್ತೆ",
-    reasoning: "ತಾರ್ಕಿಕತೆ",
-    riskBreakdown: "ಅಪಾಯ ವಿಶ್ಲೇಷಣೆ",
-    evidence: "ಪುರಾವೆಗಳು",
-    dataVerification: "ಡೇಟಾ ಪರಿಶೀಲನೆ",
-    footerDescription:
-      "ಸಹಯೋಗಿ ಏಜೆಂಟ್‌ಗಳೊಂದಿಗೆ ಸಾಗರ ಪರಿಸರ ವ್ಯವಸ್ಥೆಯ ವಿಶ್ಲೇಷಣೆ",
-    footerText: "AI ಆಧಾರಿತ ಸಾಗರ ನಿರ್ಧಾರ ಸಹಾಯ",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ · 23 ಭಾಷೆಗಳು",
-    low: "ಕಡಿಮೆ",
-    moderate: "ಮಧ್ಯಮ",
-    high: "ಹೆಚ್ಚು",
-    severe: "ತೀವ್ರ",
-  },
-
-  ml: {
-    marineEcosystem: "സമുദ്ര പരിസ്ഥിതി ബുദ്ധി",
-    systemOnline: "സിസ്റ്റം ഓൺലൈനിലാണ്",
-    multiAgent: "മൾട്ടി-ഏജന്റ് സമുദ്ര ബുദ്ധി",
-    title1: "സമുദ്രത്തെ മനസ്സിലാക്കുക.",
-    title2: "മികച്ച തീരുമാനങ്ങൾ എടുക്കുക.",
-    description:
-      "ORCA യഥാർത്ഥ സമുദ്ര സാഹചര്യങ്ങൾ വിശകലനം ചെയ്യാൻ സമുദ്ര, കാലാവസ്ഥ, ഉപഗ്രഹ, ഭൂമിശാസ്ത്ര വിവരങ്ങൾ സംയോജിപ്പിക്കുന്നു.",
-    oceanIntelligence: "🌊 സമുദ്ര ബുദ്ധി",
-    weatherAnalysis: "☁ കാലാവസ്ഥാ വിശകലനം",
-    satelliteData: "🛰 ഉപഗ്രഹ ഡാറ്റ",
-    gisIntelligence: "📍 GIS ബുദ്ധി",
-    aiReasoning: "🤖 AI വിശകലനം",
-    askOrca: "ORCAയോട് ചോദിക്കുക",
-    questionTitle: "സമുദ്ര പരിസ്ഥിതിയെക്കുറിച്ച് ചോദിക്കുക.",
-    questionDescription:
-      "നിങ്ങൾ അറിയാൻ ആഗ്രഹിക്കുന്നത് ORCAയോട് പറയുക, സ്ഥലം തിരഞ്ഞെടുത്ത് പുറപ്പെടുന്ന സമയം തിരഞ്ഞെടുക്കുക.",
-    decisionSupport: "● AI തീരുമാന സഹായം",
-    collaborativeNetwork: "സഹകരണ ഏജന്റ് നെറ്റ്‌വർക്ക്",
-    analyzing: "വിശകലനം നടക്കുന്നു",
-    systemReady: "സിസ്റ്റം തയ്യാറാണ്",
-    ocean: "സമുദ്രം",
-    wavesCurrents: "തിരകളും പ്രവാഹങ്ങളും",
-    weather: "കാലാവസ്ഥ",
-    windRainfall: "കാറ്റും മഴയും",
-    satellite: "ഉപഗ്രഹം",
-    marineObservations: "സമുദ്ര നിരീക്ഷണങ്ങൾ",
-    gis: "GIS",
-    locationConstraints: "സ്ഥല നിയന്ത്രണങ്ങൾ",
-    orcaReasoner: "ORCA റീസണർ",
-    finalAssessment: "അന്തിമ വിലയിരുത്തൽ",
-    assessment: "ORCA വിലയിരുത്തൽ",
-    marineRisk: "സമുദ്ര അപകട വിലയിരുത്തൽ",
-    liveIntelligence: "ലൈവ് ഇന്റലിജൻസ്",
-    recommendation: "ORCA ശുപാർശ",
-    recommendationDescription:
-      "ഈ തീരുമാന സഹായ വിലയിരുത്തൽ സൃഷ്ടിക്കാൻ ORCA നിരവധി പരിസ്ഥിതി വിവര സ്രോതസ്സുകൾ സംയോജിപ്പിക്കുന്നു.",
-    marineConditions: "സമുദ്ര സാഹചര്യങ്ങൾ",
-    environmentalOverview: "പരിസ്ഥിതി അവലോകനം",
-    spatialIntelligence: "സ്ഥലിക ബുദ്ധി",
-    reasoning: "യുക്തി",
-    riskBreakdown: "അപകട വിശകലനം",
-    evidence: "തെളിവുകൾ",
-    dataVerification: "ഡാറ്റ പരിശോധന",
-    footerDescription:
-      "സഹകരണ ഏജന്റുമാരോടൊപ്പം സമുദ്ര പരിസ്ഥിതി വിശകലനം",
-    footerText: "AI അടിസ്ഥാനമാക്കിയുള്ള സമുദ്ര തീരുമാന സഹായം",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ഭാഷ തിരഞ്ഞെടുക്കുക · 23 ഭാഷകൾ",
-    low: "കുറവ്",
-    moderate: "മിതമായ",
-    high: "ഉയർന്ന",
-    severe: "ഗുരുതരമായ",
-  },
-
-  pa: {
-    marineEcosystem: "ਸਮੁੰਦਰੀ ਪਰਿਆਵਰਣ ਬੁੱਧੀ",
-    systemOnline: "ਸਿਸਟਮ ਔਨਲਾਈਨ",
-    multiAgent: "ਮਲਟੀ-ਏਜੰਟ ਸਮੁੰਦਰੀ ਬੁੱਧੀ",
-    title1: "ਸਮੁੰਦਰ ਨੂੰ ਸਮਝੋ।",
-    title2: "ਬਿਹਤਰ ਫੈਸਲੇ ਲਓ।",
-    description:
-      "ORCA ਅਸਲ ਸਮੁੰਦਰੀ ਹਾਲਾਤਾਂ ਦਾ ਵਿਸ਼ਲੇਸ਼ਣ ਕਰਨ ਲਈ ਸਮੁੰਦਰੀ, ਮੌਸਮ, ਸੈਟੇਲਾਈਟ ਅਤੇ ਭੂਗੋਲਿਕ ਜਾਣਕਾਰੀ ਨੂੰ ਜੋੜਦਾ ਹੈ।",
-    oceanIntelligence: "🌊 ਸਮੁੰਦਰੀ ਬੁੱਧੀ",
-    weatherAnalysis: "☁ ਮੌਸਮ ਵਿਸ਼ਲੇਸ਼ਣ",
-    satelliteData: "🛰 ਸੈਟੇਲਾਈਟ ਡਾਟਾ",
-    gisIntelligence: "📍 GIS ਬੁੱਧੀ",
-    aiReasoning: "🤖 AI ਵਿਸ਼ਲੇਸ਼ਣ",
-    askOrca: "ORCA ਨੂੰ ਪੁੱਛੋ",
-    questionTitle: "ਸਮੁੰਦਰੀ ਵਾਤਾਵਰਣ ਬਾਰੇ ਸਵਾਲ ਪੁੱਛੋ।",
-    questionDescription:
-      "ORCA ਨੂੰ ਦੱਸੋ ਕਿ ਤੁਸੀਂ ਕੀ ਜਾਣਨਾ ਚਾਹੁੰਦੇ ਹੋ, ਸਥਾਨ ਅਤੇ ਰਵਾਨਗੀ ਦਾ ਸਮਾਂ ਚੁਣੋ।",
-    decisionSupport: "● AI ਫੈਸਲਾ ਸਹਾਇਤਾ",
-    collaborativeNetwork: "ਸਹਿਯੋਗੀ ਏਜੰਟ ਨੈੱਟਵਰਕ",
-    analyzing: "ਵਿਸ਼ਲੇਸ਼ਣ ਹੋ ਰਿਹਾ ਹੈ",
-    systemReady: "ਸਿਸਟਮ ਤਿਆਰ",
-    ocean: "ਸਮੁੰਦਰ",
-    wavesCurrents: "ਲਹਿਰਾਂ ਅਤੇ ਧਾਰਾਵਾਂ",
-    weather: "ਮੌਸਮ",
-    windRainfall: "ਹਵਾ ਅਤੇ ਮੀਂਹ",
-    satellite: "ਸੈਟੇਲਾਈਟ",
-    marineObservations: "ਸਮੁੰਦਰੀ ਨਿਰੀਖਣ",
-    gis: "GIS",
-    locationConstraints: "ਸਥਾਨ ਸੀਮਾਵਾਂ",
-    orcaReasoner: "ORCA ਰੀਜ਼ਨਰ",
-    finalAssessment: "ਅੰਤਿਮ ਮੁਲਾਂਕਣ",
-    assessment: "ORCA ਮੁਲਾਂਕਣ",
-    marineRisk: "ਸਮੁੰਦਰੀ ਜੋਖਮ ਮੁਲਾਂਕਣ",
-    liveIntelligence: "ਲਾਈਵ ਇੰਟੈਲੀਜੈਂਸ",
-    recommendation: "ORCA ਸਿਫਾਰਸ਼",
-    recommendationDescription:
-      "ORCA ਇਸ ਫੈਸਲਾ ਸਹਾਇਤਾ ਮੁਲਾਂਕਣ ਨੂੰ ਬਣਾਉਣ ਲਈ ਕਈ ਵਾਤਾਵਰਣਕ ਜਾਣਕਾਰੀ ਸਰੋਤਾਂ ਨੂੰ ਜੋੜਦਾ ਹੈ।",
-    marineConditions: "ਸਮੁੰਦਰੀ ਹਾਲਾਤ",
-    environmentalOverview: "ਵਾਤਾਵਰਣਕ ਸੰਖੇਪ",
-    spatialIntelligence: "ਸਥਾਨਕ ਬੁੱਧੀ",
-    reasoning: "ਤਰਕ",
-    riskBreakdown: "ਜੋਖਮ ਵਿਸ਼ਲੇਸ਼ਣ",
-    evidence: "ਸਬੂਤ",
-    dataVerification: "ਡਾਟਾ ਤਸਦੀਕ",
-    footerDescription:
-      "ਸਹਿਯੋਗੀ ਏਜੰਟਾਂ ਨਾਲ ਸਮੁੰਦਰੀ ਪਰਿਆਵਰਣ ਵਿਸ਼ਲੇਸ਼ਣ",
-    footerText: "AI-ਅਧਾਰਿਤ ਸਮੁੰਦਰੀ ਫੈਸਲਾ ਸਹਾਇਤਾ",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ਭਾਸ਼ਾ ਚੁਣੋ · 23 ਭਾਸ਼ਾਵਾਂ",
-    low: "ਘੱਟ",
-    moderate: "ਦਰਮਿਆਨਾ",
-    high: "ਉੱਚ",
-    severe: "ਗੰਭੀਰ",
-  },
-
-  or: {
-    marineEcosystem: "ସାମୁଦ୍ରିକ ପରିବେଶ ବୁଦ୍ଧିମତ୍ତା",
-    systemOnline: "ସିଷ୍ଟମ୍ ଅନଲାଇନ୍",
-    multiAgent: "ମଲ୍ଟି-ଏଜେଣ୍ଟ ସାମୁଦ୍ରିକ ବୁଦ୍ଧିମତ୍ତା",
-    title1: "ସମୁଦ୍ରକୁ ବୁଝନ୍ତୁ।",
-    title2: "ଭଲ ନିଷ୍ପତ୍ତି ନିଅନ୍ତୁ।",
-    description:
-      "ORCA ପ୍ରକୃତ ସାମୁଦ୍ରିକ ପରିସ୍ଥିତି ବିଶ୍ଳେଷଣ କରିବା ପାଇଁ ସାମୁଦ୍ରିକ, ପାଣିପାଗ, ଉପଗ୍ରହ ଏବଂ ଭୌଗୋଳିକ ସୂଚନାକୁ ଏକତ୍ର କରେ।",
-    oceanIntelligence: "🌊 ମହାସାଗର ବୁଦ୍ଧିମତ୍ତା",
-    weatherAnalysis: "☁ ପାଣିପାଗ ବିଶ୍ଳେଷଣ",
-    satelliteData: "🛰 ଉପଗ୍ରହ ତଥ୍ୟ",
-    gisIntelligence: "📍 GIS ବୁଦ୍ଧିମତ୍ତା",
-    aiReasoning: "🤖 AI ବିଶ୍ଳେଷଣ",
-    askOrca: "ORCA କୁ ପଚାରନ୍ତୁ",
-    questionTitle: "ସାମୁଦ୍ରିକ ପରିବେଶ ବିଷୟରେ ପ୍ରଶ୍ନ ପଚାରନ୍ତୁ।",
-    questionDescription:
-      "ଆପଣ କଣ ଜାଣିବାକୁ ଚାହୁଁଛନ୍ତି ORCA କୁ କୁହନ୍ତୁ, ସ୍ଥାନ ଏବଂ ପ୍ରସ୍ଥାନ ସମୟ ବାଛନ୍ତୁ।",
-    decisionSupport: "● AI ନିଷ୍ପତ୍ତି ସହାୟତା",
-    collaborativeNetwork: "ସହଯୋଗୀ ଏଜେଣ୍ଟ ନେଟୱର୍କ",
-    analyzing: "ବିଶ୍ଳେଷଣ ଚାଲିଛି",
-    systemReady: "ସିଷ୍ଟମ୍ ପ୍ରସ୍ତୁତ",
-    ocean: "ମହାସାଗର",
-    wavesCurrents: "ତରଙ୍ଗ ଏବଂ ସ୍ରୋତ",
-    weather: "ପାଣିପାଗ",
-    windRainfall: "ପବନ ଏବଂ ବର୍ଷା",
-    satellite: "ଉପଗ୍ରହ",
-    marineObservations: "ସାମୁଦ୍ରିକ ନିରୀକ୍ଷଣ",
-    gis: "GIS",
-    locationConstraints: "ସ୍ଥାନ ସୀମା",
-    orcaReasoner: "ORCA ରିଜନର",
-    finalAssessment: "ଅନ୍ତିମ ମୂଲ୍ୟାୟନ",
-    assessment: "ORCA ମୂଲ୍ୟାୟନ",
-    marineRisk: "ସାମୁଦ୍ରିକ ବିପଦ ମୂଲ୍ୟାୟନ",
-    liveIntelligence: "ଲାଇଭ୍ ବୁଦ୍ଧିମତ୍ତା",
-    recommendation: "ORCA ସୁପାରିଶ",
-    recommendationDescription:
-      "ORCA ଏହି ନିଷ୍ପତ୍ତି ସହାୟତା ମୂଲ୍ୟାୟନ ପାଇଁ ବିଭିନ୍ନ ପରିବେଶୀୟ ସୂଚନା ଉତ୍ସକୁ ଏକତ୍ର କରେ।",
-    marineConditions: "ସାମୁଦ୍ରିକ ପରିସ୍ଥିତି",
-    environmentalOverview: "ପରିବେଶୀୟ ସମୀକ୍ଷା",
-    spatialIntelligence: "ସ୍ଥାନିକ ବୁଦ୍ଧିମତ୍ତା",
-    reasoning: "ତର୍କ",
-    riskBreakdown: "ବିପଦ ବିଶ୍ଳେଷଣ",
-    evidence: "ପ୍ରମାଣ",
-    dataVerification: "ତଥ୍ୟ ଯାଞ୍ଚ",
-    footerDescription:
-      "ସହଯୋଗୀ ଏଜେଣ୍ଟ ସହ ସାମୁଦ୍ରିକ ପରିବେଶ ବିଶ୍ଳେଷଣ",
-    footerText: "AI ଆଧାରିତ ସାମୁଦ୍ରିକ ନିଷ୍ପତ୍ତି ସହାୟତା",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ଭାଷା ବାଛନ୍ତୁ · 23 ଭାଷା",
-    low: "କମ୍",
-    moderate: "ମଧ୍ୟମ",
-    high: "ଅଧିକ",
-    severe: "ଗୁରୁତର",
-  },
-
-  as: {
-    marineEcosystem: "সামুদ্ৰিক পৰিৱেশ বুদ্ধিমত্তা",
-    systemOnline: "চিস্টেম অনলাইন",
-    multiAgent: "মাল্টি-এজেন্ট সামুদ্ৰিক বুদ্ধিমত্তা",
-    title1: "সাগৰক বুজক।",
-    title2: "ভাল সিদ্ধান্ত লওক।",
-    description:
-      "ORCA-ই বাস্তৱ সামুদ্ৰিক পৰিস্থিতি বিশ্লেষণ কৰিবলৈ সাগৰ, বতৰ, উপগ্ৰহ আৰু ভৌগোলিক তথ্য একত্ৰিত কৰে।",
-    oceanIntelligence: "🌊 মহাসাগৰীয় বুদ্ধিমত্তা",
-    weatherAnalysis: "☁ বতৰ বিশ্লেষণ",
-    satelliteData: "🛰 উপগ্ৰহ তথ্য",
-    gisIntelligence: "📍 GIS বুদ্ধিমত্তা",
-    aiReasoning: "🤖 AI বিশ্লেষণ",
-    askOrca: "ORCA-ক সোধক",
-    questionTitle: "সামুদ্ৰিক পৰিৱেশৰ বিষয়ে প্ৰশ্ন সোধক।",
-    questionDescription:
-      "আপুনি কি জানিব বিচাৰে ORCA-ক কওক, স্থান আৰু যাত্ৰাৰ সময় বাছনি কৰক।",
-    decisionSupport: "● AI সিদ্ধান্ত সহায়",
-    collaborativeNetwork: "সহযোগী এজেন্ট নেটৱৰ্ক",
-    analyzing: "বিশ্লেষণ চলি আছে",
-    systemReady: "চিস্টেম সাজু",
-    ocean: "মহাসাগৰ",
-    wavesCurrents: "ঢৌ আৰু সোঁত",
-    weather: "বতৰ",
-    windRainfall: "বতাহ আৰু বৰষুণ",
-    satellite: "উপগ্ৰহ",
-    marineObservations: "সামুদ্ৰিক পৰ্যবেক্ষণ",
-    gis: "GIS",
-    locationConstraints: "স্থান সীমাবদ্ধতা",
-    orcaReasoner: "ORCA ৰিজনাৰ",
-    finalAssessment: "চূড়ান্ত মূল্যায়ন",
-    assessment: "ORCA মূল্যায়ন",
-    marineRisk: "সামুদ্ৰিক বিপদ মূল্যায়ন",
-    liveIntelligence: "লাইভ বুদ্ধিমত্তা",
-    recommendation: "ORCA পৰামৰ্শ",
-    recommendationDescription:
-      "ORCA-ই এই সিদ্ধান্ত সহায় মূল্যায়ন তৈয়াৰ কৰিবলৈ একাধিক পৰিৱেশীয় তথ্য উৎস একত্ৰিত কৰে।",
-    marineConditions: "সামুদ্ৰিক পৰিস্থিতি",
-    environmentalOverview: "পৰিৱেশীয় পৰ্যালোচনা",
-    spatialIntelligence: "স্থানিক বুদ্ধিমত্তা",
-    reasoning: "যুক্তি",
-    riskBreakdown: "বিপদ বিশ্লেষণ",
-    evidence: "প্ৰমাণ",
-    dataVerification: "তথ্য যাচাই",
-    footerDescription:
-      "সহযোগী এজেন্টৰ সৈতে সামুদ্ৰিক পৰিৱেশ বিশ্লেষণ",
-    footerText: "AI-চালিত সামুদ্ৰিক সিদ্ধান্ত সহায়",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "ভাষা বাছক · ২৩টা ভাষা",
-    low: "কম",
-    moderate: "মধ্যম",
-    high: "উচ্চ",
-    severe: "গুৰুতৰ",
-  },
-
-  ur: {
-    marineEcosystem: "سمندری ماحولیاتی ذہانت",
-    systemOnline: "سسٹم آن لائن",
-    multiAgent: "ملٹی ایجنٹ میرین انٹیلی جنس",
-    title1: "سمندر کو سمجھیں۔",
-    title2: "بہتر فیصلے کریں۔",
-    description:
-      "ORCA حقیقی سمندری حالات کا تجزیہ کرنے کے لیے سمندری، موسمی، سیٹلائٹ اور جغرافیائی معلومات کو یکجا کرتا ہے۔",
-    oceanIntelligence: "🌊 سمندری ذہانت",
-    weatherAnalysis: "☁ موسمی تجزیہ",
-    satelliteData: "🛰 سیٹلائٹ ڈیٹا",
-    gisIntelligence: "📍 GIS ذہانت",
-    aiReasoning: "🤖 AI تجزیہ",
-    askOrca: "ORCA سے پوچھیں",
-    questionTitle: "سمندری ماحول کے بارے میں سوال پوچھیں۔",
-    questionDescription:
-      "ORCA کو بتائیں کہ آپ کیا جاننا چاہتے ہیں، مقام اور روانگی کا وقت منتخب کریں۔",
-    decisionSupport: "● AI فیصلہ معاونت",
-    collaborativeNetwork: "تعاونی ایجنٹ نیٹ ورک",
-    analyzing: "تجزیہ جاری ہے",
-    systemReady: "سسٹم تیار ہے",
-    ocean: "سمندر",
-    wavesCurrents: "لہریں اور دھارے",
-    weather: "موسم",
-    windRainfall: "ہوا اور بارش",
-    satellite: "سیٹلائٹ",
-    marineObservations: "سمندری مشاہدات",
-    gis: "GIS",
-    locationConstraints: "مقام کی پابندیاں",
-    orcaReasoner: "ORCA ریزنر",
-    finalAssessment: "حتمی جائزہ",
-    assessment: "ORCA جائزہ",
-    marineRisk: "سمندری خطرے کا جائزہ",
-    liveIntelligence: "لائیو انٹیلی جنس",
-    recommendation: "ORCA سفارش",
-    recommendationDescription:
-      "ORCA اس فیصلہ معاون جائزے کو تیار کرنے کے لیے متعدد ماحولیاتی معلومات کے ذرائع کو یکجا کرتا ہے۔",
-    marineConditions: "سمندری حالات",
-    environmentalOverview: "ماحولیاتی جائزہ",
-    spatialIntelligence: "مقامی ذہانت",
-    reasoning: "استدلال",
-    riskBreakdown: "خطرے کی تفصیل",
-    evidence: "ثبوت",
-    dataVerification: "ڈیٹا کی تصدیق",
-    footerDescription:
-      "تعاونی ایجنٹس کے ساتھ سمندری ماحولیاتی استدلال",
-    footerText: "AI سے چلنے والی سمندری فیصلہ معاونت",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "زبان منتخب کریں · 23 زبانیں",
-    low: "کم",
-    moderate: "درمیانہ",
-    high: "زیادہ",
-    severe: "شدید",
-  },
-
-  ne: {
-    marineEcosystem: "समुद्री पारिस्थितिक प्रणाली बुद्धिमत्ता",
-    systemOnline: "प्रणाली अनलाइन",
-    multiAgent: "बहु-एजेन्ट समुद्री बुद्धिमत्ता",
-    title1: "समुद्रलाई बुझ्नुहोस्।",
-    title2: "राम्रो निर्णय लिनुहोस्।",
-    description:
-      "ORCA ले वास्तविक समुद्री अवस्थाहरू विश्लेषण गर्न समुद्र, मौसम, उपग्रह र भौगोलिक जानकारी संयोजन गर्छ।",
-    oceanIntelligence: "🌊 महासागर बुद्धिमत्ता",
-    weatherAnalysis: "☁ मौसम विश्लेषण",
-    satelliteData: "🛰 उपग्रह डेटा",
-    gisIntelligence: "📍 GIS बुद्धिमत्ता",
-    aiReasoning: "🤖 AI विश्लेषण",
-    askOrca: "ORCA लाई सोध्नुहोस्",
-    questionTitle: "समुद्री वातावरणबारे प्रश्न सोध्नुहोस्।",
-    questionDescription:
-      "तपाईं के जान्न चाहनुहुन्छ ORCA लाई भन्नुहोस्, स्थान र प्रस्थान समय छान्नुहोस्।",
-    decisionSupport: "● AI निर्णय सहायता",
-    collaborativeNetwork: "सहयोगी एजेन्ट नेटवर्क",
-    analyzing: "विश्लेषण हुँदैछ",
-    systemReady: "प्रणाली तयार",
-    ocean: "महासागर",
-    wavesCurrents: "छाल र धाराहरू",
-    weather: "मौसम",
-    windRainfall: "हावा र वर्षा",
-    satellite: "उपग्रह",
-    marineObservations: "समुद्री अवलोकन",
-    gis: "GIS",
-    locationConstraints: "स्थान सीमाहरू",
-    orcaReasoner: "ORCA रिजनर",
-    finalAssessment: "अन्तिम मूल्याङ्कन",
-    assessment: "ORCA मूल्याङ्कन",
-    marineRisk: "समुद्री जोखिम मूल्याङ्कन",
-    liveIntelligence: "लाइभ इन्टेलिजेन्स",
-    recommendation: "ORCA सिफारिस",
-    recommendationDescription:
-      "ORCA ले यो निर्णय सहायता मूल्याङ्कन तयार गर्न धेरै वातावरणीय जानकारी स्रोतहरू संयोजन गर्छ।",
-    marineConditions: "समुद्री अवस्थाहरू",
-    environmentalOverview: "वातावरणीय अवलोकन",
-    spatialIntelligence: "स्थानिक बुद्धिमत्ता",
-    reasoning: "तर्क",
-    riskBreakdown: "जोखिम विश्लेषण",
-    evidence: "प्रमाण",
-    dataVerification: "डेटा प्रमाणीकरण",
-    footerDescription:
-      "सहयोगी एजेन्टहरूसँग समुद्री पारिस्थितिक प्रणाली विश्लेषण",
-    footerText: "AI-संचालित समुद्री निर्णय सहायता",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "भाषा चयन गर्नुहोस् · २३ भाषाहरू",
-    low: "कम",
-    moderate: "मध्यम",
-    high: "उच्च",
-    severe: "गम्भीर",
-  },
-
-  es: {
-    marineEcosystem: "Inteligencia del ecosistema marino",
-    systemOnline: "Sistema en línea",
-    multiAgent: "INTELIGENCIA MARINA MULTIAGENTE",
-    title1: "Comprende el océano.",
-    title2: "Toma mejores decisiones.",
-    description:
-      "ORCA combina inteligencia marina, meteorológica, oceánica, satelital y geográfica para analizar las condiciones marinas reales.",
-    oceanIntelligence: "🌊 Inteligencia oceánica",
-    weatherAnalysis: "☁ Análisis meteorológico",
-    satelliteData: "🛰 Datos satelitales",
-    gisIntelligence: "📍 Inteligencia GIS",
-    aiReasoning: "🤖 Razonamiento de IA",
-    askOrca: "PREGUNTA A ORCA",
-    questionTitle: "Haz una pregunta sobre el entorno marino.",
-    questionDescription:
-      "Dile a ORCA qué quieres saber, selecciona una ubicación y elige tu hora de salida.",
-    decisionSupport: "● SOPORTE DE DECISIONES IA",
-    collaborativeNetwork: "Red de Agentes Colaborativos",
-    analyzing: "ANALIZANDO",
-    systemReady: "SISTEMA LISTO",
-    ocean: "OCÉANO",
-    wavesCurrents: "Olas y corrientes",
-    weather: "CLIMA",
-    windRainfall: "Viento y lluvia",
-    satellite: "SATÉLITE",
-    marineObservations: "Observaciones marinas",
-    gis: "GIS",
-    locationConstraints: "Restricciones de ubicación",
-    orcaReasoner: "RAZONADOR ORCA",
-    finalAssessment: "Evaluación final",
-    assessment: "EVALUACIÓN ORCA",
-    marineRisk: "Evaluación del riesgo marino",
-    liveIntelligence: "INTELIGENCIA EN VIVO",
-    recommendation: "RECOMENDACIÓN ORCA",
-    recommendationDescription:
-      "ORCA combina múltiples fuentes de inteligencia ambiental para generar esta evaluación de apoyo a decisiones.",
-    marineConditions: "CONDICIONES MARINAS",
-    environmentalOverview: "Resumen ambiental",
-    spatialIntelligence: "INTELIGENCIA ESPACIAL",
-    reasoning: "RAZONAMIENTO",
-    riskBreakdown: "Desglose del riesgo",
-    evidence: "EVIDENCIA",
-    dataVerification: "Verificación de datos",
-    footerDescription:
-      "Razonamiento del ecosistema marino con agentes colaborativos",
-    footerText: "Soporte de decisiones marinas impulsado por IA",
-    footerTech: "SIH 2026 • INTELIGENCIA MARINA",
-    selectLanguage: "SELECCIONAR IDIOMA · 23 IDIOMAS",
-    low: "BAJO",
-    moderate: "MODERADO",
-    high: "ALTO",
-    severe: "SEVERO",
-  },
-
-  fr: {
-    marineEcosystem: "Intelligence de l'écosystème marin",
-    systemOnline: "Système en ligne",
-    multiAgent: "INTELLIGENCE MARINE MULTI-AGENTS",
-    title1: "Comprenez l'océan.",
-    title2: "Prenez de meilleures décisions.",
-    description:
-      "ORCA combine les données marines, météorologiques, océaniques, satellitaires et géographiques pour analyser les conditions marines réelles.",
-    oceanIntelligence: "🌊 Intelligence océanique",
-    weatherAnalysis: "☁ Analyse météorologique",
-    satelliteData: "🛰 Données satellitaires",
-    gisIntelligence: "📍 Intelligence GIS",
-    aiReasoning: "🤖 Raisonnement IA",
-    askOrca: "DEMANDEZ À ORCA",
-    questionTitle: "Posez une question sur l'environnement marin.",
-    questionDescription:
-      "Dites à ORCA ce que vous voulez savoir, sélectionnez un emplacement et choisissez votre heure de départ.",
-    decisionSupport: "● AIDE À LA DÉCISION IA",
-    collaborativeNetwork: "Réseau d'agents collaboratifs",
-    analyzing: "ANALYSE",
-    systemReady: "SYSTÈME PRÊT",
-    ocean: "OCÉAN",
-    wavesCurrents: "Vagues et courants",
-    weather: "MÉTÉO",
-    windRainfall: "Vent et précipitations",
-    satellite: "SATELLITE",
-    marineObservations: "Observations marines",
-    gis: "GIS",
-    locationConstraints: "Contraintes de localisation",
-    orcaReasoner: "RAISONNEUR ORCA",
-    finalAssessment: "Évaluation finale",
-    assessment: "ÉVALUATION ORCA",
-    marineRisk: "Évaluation du risque marin",
-    liveIntelligence: "INTELLIGENCE EN DIRECT",
-    recommendation: "RECOMMANDATION ORCA",
-    recommendationDescription:
-      "ORCA combine plusieurs sources d'intelligence environnementale pour générer cette évaluation d'aide à la décision.",
-    marineConditions: "CONDITIONS MARINES",
-    environmentalOverview: "Vue d'ensemble environnementale",
-    spatialIntelligence: "INTELLIGENCE SPATIALE",
-    reasoning: "RAISONNEMENT",
-    riskBreakdown: "Répartition des risques",
-    evidence: "PREUVES",
-    dataVerification: "Vérification des données",
-    footerDescription:
-      "Raisonnement de l'écosystème marin avec des agents collaboratifs",
-    footerText: "Aide à la décision marine alimentée par l'IA",
-    footerTech: "SIH 2026 • INTELLIGENCE MARINE",
-    selectLanguage: "CHOISIR LA LANGUE · 23 LANGUES",
-    low: "FAIBLE",
-    moderate: "MODÉRÉ",
-    high: "ÉLEVÉ",
-    severe: "SÉVÈRE",
-  },
-
-  de: {
-    marineEcosystem: "Intelligenz des Meeresökosystems",
-    systemOnline: "System online",
-    multiAgent: "MULTI-AGENTEN-MEERESINTELLIGENZ",
-    title1: "Verstehen Sie den Ozean.",
-    title2: "Treffen Sie bessere Entscheidungen.",
-    description:
-      "ORCA kombiniert Meeres-, Wetter-, Ozean-, Satelliten- und geografische Daten zur Analyse realer Meeresbedingungen.",
-    oceanIntelligence: "🌊 Meeresintelligenz",
-    weatherAnalysis: "☁ Wetteranalyse",
-    satelliteData: "🛰 Satellitendaten",
-    gisIntelligence: "📍 GIS-Intelligenz",
-    aiReasoning: "🤖 KI-Analyse",
-    askOrca: "ORCA FRAGEN",
-    questionTitle: "Stellen Sie eine Frage zur Meeresumwelt.",
-    questionDescription:
-      "Teilen Sie ORCA mit, was Sie wissen möchten, wählen Sie einen Standort und Ihre Abfahrtszeit.",
-    decisionSupport: "● KI-ENTSCHEIDUNGSUNTERSTÜTZUNG",
-    collaborativeNetwork: "Kollaboratives Agentennetzwerk",
-    analyzing: "ANALYSE LÄUFT",
-    systemReady: "SYSTEM BEREIT",
-    ocean: "OZEAN",
-    wavesCurrents: "Wellen & Strömungen",
-    weather: "WETTER",
-    windRainfall: "Wind & Regen",
-    satellite: "SATELLIT",
-    marineObservations: "Meeresbeobachtungen",
-    gis: "GIS",
-    locationConstraints: "Standortbeschränkungen",
-    orcaReasoner: "ORCA REASONER",
-    finalAssessment: "Abschließende Bewertung",
-    assessment: "ORCA-BEWERTUNG",
-    marineRisk: "Meeresrisikobewertung",
-    liveIntelligence: "LIVE-INTELLIGENZ",
-    recommendation: "ORCA-EMPFEHLUNG",
-    recommendationDescription:
-      "ORCA kombiniert mehrere Umweltinformationsquellen, um diese Entscheidungsunterstützung zu erstellen.",
-    marineConditions: "MEERESBEDINGUNGEN",
-    environmentalOverview: "Umweltübersicht",
-    spatialIntelligence: "RÄUMLICHE INTELLIGENZ",
-    reasoning: "BEGRÜNDUNG",
-    riskBreakdown: "Risikobewertung",
-    evidence: "NACHWEISE",
-    dataVerification: "Datenüberprüfung",
-    footerDescription:
-      "Analyse des Meeresökosystems mit kollaborativen Agenten",
-    footerText: "KI-gestützte maritime Entscheidungsunterstützung",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "SPRACHE AUSWÄHLEN · 23 SPRACHEN",
-    low: "NIEDRIG",
-    moderate: "MODERAT",
-    high: "HOCH",
-    severe: "SCHWER",
-  },
-
-  pt: {
-    marineEcosystem: "Inteligência do Ecossistema Marinho",
-    systemOnline: "Sistema Online",
-    multiAgent: "INTELIGÊNCIA MARINHA MULTIAGENTE",
-    title1: "Entenda o oceano.",
-    title2: "Tome decisões melhores.",
-    description:
-      "A ORCA combina inteligência marinha, meteorológica, oceânica, satelital e geográfica para analisar condições marinhas reais.",
-    oceanIntelligence: "🌊 Inteligência oceânica",
-    weatherAnalysis: "☁ Análise meteorológica",
-    satelliteData: "🛰 Dados de satélite",
-    gisIntelligence: "📍 Inteligência GIS",
-    aiReasoning: "🤖 Raciocínio de IA",
-    askOrca: "PERGUNTE À ORCA",
-    questionTitle: "Faça uma pergunta sobre o ambiente marinho.",
-    questionDescription:
-      "Diga à ORCA o que você deseja saber, selecione um local e escolha seu horário de partida.",
-    decisionSupport: "● SUPORTE À DECISÃO POR IA",
-    collaborativeNetwork: "Rede de Agentes Colaborativos",
-    analyzing: "ANALISANDO",
-    systemReady: "SISTEMA PRONTO",
-    ocean: "OCEANO",
-    wavesCurrents: "Ondas e correntes",
-    weather: "CLIMA",
-    windRainfall: "Vento e chuva",
-    satellite: "SATÉLITE",
-    marineObservations: "Observações marinhas",
-    gis: "GIS",
-    locationConstraints: "Restrições de localização",
-    orcaReasoner: "RAZONADOR ORCA",
-    finalAssessment: "Avaliação final",
-    assessment: "AVALIAÇÃO ORCA",
-    marineRisk: "Avaliação de risco marinho",
-    liveIntelligence: "INTELIGÊNCIA AO VIVO",
-    recommendation: "RECOMENDAÇÃO ORCA",
-    recommendationDescription:
-      "A ORCA combina várias fontes de inteligência ambiental para gerar esta avaliação de apoio à decisão.",
-    marineConditions: "CONDIÇÕES MARINHAS",
-    environmentalOverview: "Visão geral ambiental",
-    spatialIntelligence: "INTELIGÊNCIA ESPACIAL",
-    reasoning: "RACIOCÍNIO",
-    riskBreakdown: "Detalhamento do risco",
-    evidence: "EVIDÊNCIAS",
-    dataVerification: "Verificação de dados",
-    footerDescription:
-      "Raciocínio do ecossistema marinho com agentes colaborativos",
-    footerText: "Suporte à decisão marinha com IA",
-    footerTech: "SIH 2026 • INTELIGÊNCIA MARINHA",
-    selectLanguage: "SELECIONE O IDIOMA · 23 IDIOMAS",
-    low: "BAIXO",
-    moderate: "MODERADO",
-    high: "ALTO",
-    severe: "SEVERO",
-  },
-
-  it: {
-    marineEcosystem: "Intelligenza dell'ecosistema marino",
-    systemOnline: "Sistema online",
-    multiAgent: "INTELLIGENZA MARINA MULTI-AGENTE",
-    title1: "Comprendi l'oceano.",
-    title2: "Prendi decisioni migliori.",
-    description:
-      "ORCA combina dati marini, meteorologici, oceanici, satellitari e geografici per analizzare le condizioni marine reali.",
-    oceanIntelligence: "🌊 Intelligenza oceanica",
-    weatherAnalysis: "☁ Analisi meteorologica",
-    satelliteData: "🛰 Dati satellitari",
-    gisIntelligence: "📍 Intelligenza GIS",
-    aiReasoning: "🤖 Ragionamento IA",
-    askOrca: "CHIEDI A ORCA",
-    questionTitle: "Fai una domanda sull'ambiente marino.",
-    questionDescription:
-      "Dì a ORCA cosa vuoi sapere, seleziona una posizione e scegli l'orario di partenza.",
-    decisionSupport: "● SUPPORTO DECISIONALE IA",
-    collaborativeNetwork: "Rete di agenti collaborativi",
-    analyzing: "ANALISI IN CORSO",
-    systemReady: "SISTEMA PRONTO",
-    ocean: "OCEANO",
-    wavesCurrents: "Onde e correnti",
-    weather: "METEO",
-    windRainfall: "Vento e pioggia",
-    satellite: "SATELLITE",
-    marineObservations: "Osservazioni marine",
-    gis: "GIS",
-    locationConstraints: "Vincoli di posizione",
-    orcaReasoner: "REASONER ORCA",
-    finalAssessment: "Valutazione finale",
-    assessment: "VALUTAZIONE ORCA",
-    marineRisk: "Valutazione del rischio marino",
-    liveIntelligence: "INTELLIGENZA LIVE",
-    recommendation: "RACCOMANDAZIONE ORCA",
-    recommendationDescription:
-      "ORCA combina diverse fonti di informazioni ambientali per generare questa valutazione di supporto decisionale.",
-    marineConditions: "CONDIZIONI MARINE",
-    environmentalOverview: "Panoramica ambientale",
-    spatialIntelligence: "INTELLIGENZA SPAZIALE",
-    reasoning: "RAGIONAMENTO",
-    riskBreakdown: "Analisi del rischio",
-    evidence: "EVIDENZE",
-    dataVerification: "Verifica dei dati",
-    footerDescription:
-      "Ragionamento sull'ecosistema marino con agenti collaborativi",
-    footerText: "Supporto decisionale marino basato sull'IA",
-    footerTech: "SIH 2026 • INTELLIGENZA MARINA",
-    selectLanguage: "SELEZIONA LINGUA · 23 LINGUE",
-    low: "BASSO",
-    moderate: "MODERATO",
-    high: "ALTO",
-    severe: "SEVERO",
-  },
-
-  ru: {
-    marineEcosystem: "Интеллект морской экосистемы",
-    systemOnline: "Система онлайн",
-    multiAgent: "МУЛЬТИАГЕНТНЫЙ МОРСКОЙ ИНТЕЛЛЕКТ",
-    title1: "Понимайте океан.",
-    title2: "Принимайте лучшие решения.",
-    description:
-      "ORCA объединяет морские, погодные, океанические, спутниковые и географические данные для анализа реальных морских условий.",
-    oceanIntelligence: "🌊 Океанический интеллект",
-    weatherAnalysis: "☁ Анализ погоды",
-    satelliteData: "🛰 Спутниковые данные",
-    gisIntelligence: "📍 GIS-интеллект",
-    aiReasoning: "🤖 ИИ-анализ",
-    askOrca: "СПРОСИТЕ ORCA",
-    questionTitle: "Задайте вопрос о морской среде.",
-    questionDescription:
-      "Сообщите ORCA, что хотите узнать, выберите место и время отправления.",
-    decisionSupport: "● ПОДДЕРЖКА РЕШЕНИЙ ИИ",
-    collaborativeNetwork: "Сеть совместных агентов",
-    analyzing: "АНАЛИЗИРУЕТСЯ",
-    systemReady: "СИСТЕМА ГОТОВА",
-    ocean: "ОКЕАН",
-    wavesCurrents: "Волны и течения",
-    weather: "ПОГОДА",
-    windRainfall: "Ветер и осадки",
-    satellite: "СПУТНИК",
-    marineObservations: "Морские наблюдения",
-    gis: "GIS",
-    locationConstraints: "Ограничения местоположения",
-    orcaReasoner: "РАССУЖДАТЕЛЬ ORCA",
-    finalAssessment: "Итоговая оценка",
-    assessment: "ОЦЕНКА ORCA",
-    marineRisk: "Оценка морского риска",
-    liveIntelligence: "АКТУАЛЬНЫЙ ИНТЕЛЛЕКТ",
-    recommendation: "РЕКОМЕНДАЦИЯ ORCA",
-    recommendationDescription:
-      "ORCA объединяет несколько источников экологической информации для создания этой оценки поддержки решений.",
-    marineConditions: "МОРСКИЕ УСЛОВИЯ",
-    environmentalOverview: "Обзор окружающей среды",
-    spatialIntelligence: "ПРОСТРАНСТВЕННЫЙ ИНТЕЛЛЕКТ",
-    reasoning: "РАССУЖДЕНИЕ",
-    riskBreakdown: "Разбор риска",
-    evidence: "ДОКАЗАТЕЛЬСТВА",
-    dataVerification: "Проверка данных",
-    footerDescription:
-      "Анализ морской экосистемы с помощью совместных агентов",
-    footerText: "Морская поддержка решений на основе ИИ",
-    footerTech: "SIH 2026 • МОРСКОЙ ИНТЕЛЛЕКТ",
-    selectLanguage: "ВЫБЕРИТЕ ЯЗЫК · 23 ЯЗЫКА",
-    low: "НИЗКИЙ",
-    moderate: "УМЕРЕННЫЙ",
-    high: "ВЫСОКИЙ",
-    severe: "ТЯЖЕЛЫЙ",
-  },
-
-  ja: {
-    marineEcosystem: "海洋生態系インテリジェンス",
-    systemOnline: "システムオンライン",
-    multiAgent: "マルチエージェント海洋インテリジェンス",
-    title1: "海を理解する。",
-    title2: "より良い意思決定を。",
-    description:
-      "ORCAは海洋、気象、海況、衛星、地理情報を組み合わせ、実際の海洋状況を分析します。",
-    oceanIntelligence: "🌊 海洋インテリジェンス",
-    weatherAnalysis: "☁ 気象分析",
-    satelliteData: "🛰 衛星データ",
-    gisIntelligence: "📍 GISインテリジェンス",
-    aiReasoning: "🤖 AI推論",
-    askOrca: "ORCAに質問",
-    questionTitle: "海洋環境について質問してください。",
-    questionDescription:
-      "知りたいことをORCAに伝え、場所と出発時刻を選択してください。",
-    decisionSupport: "● AI意思決定支援",
-    collaborativeNetwork: "協調エージェントネットワーク",
-    analyzing: "分析中",
-    systemReady: "システム準備完了",
-    ocean: "海洋",
-    wavesCurrents: "波と海流",
-    weather: "天候",
-    windRainfall: "風と降水",
-    satellite: "衛星",
-    marineObservations: "海洋観測",
-    gis: "GIS",
-    locationConstraints: "位置制約",
-    orcaReasoner: "ORCA推論エンジン",
-    finalAssessment: "最終評価",
-    assessment: "ORCA評価",
-    marineRisk: "海洋リスク評価",
-    liveIntelligence: "ライブインテリジェンス",
-    recommendation: "ORCA推奨",
-    recommendationDescription:
-      "ORCAは複数の環境情報源を組み合わせ、この意思決定支援評価を生成します。",
-    marineConditions: "海洋状況",
-    environmentalOverview: "環境概要",
-    spatialIntelligence: "空間インテリジェンス",
-    reasoning: "推論",
-    riskBreakdown: "リスク内訳",
-    evidence: "証拠",
-    dataVerification: "データ検証",
-    footerDescription:
-      "協調エージェントによる海洋生態系推論",
-    footerText: "AI搭載の海洋意思決定支援",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "言語を選択 · 23言語",
-    low: "低",
-    moderate: "中",
-    high: "高",
-    severe: "重大",
-  },
-
-  ko: {
-    marineEcosystem: "해양 생태계 인텔리전스",
-    systemOnline: "시스템 온라인",
-    multiAgent: "멀티 에이전트 해양 인텔리전스",
-    title1: "바다를 이해하세요.",
-    title2: "더 나은 결정을 내리세요.",
-    description:
-      "ORCA는 해양, 날씨, 위성 및 지리 정보를 결합하여 실제 해양 상황을 분석합니다.",
-    oceanIntelligence: "🌊 해양 인텔리전스",
-    weatherAnalysis: "☁ 날씨 분석",
-    satelliteData: "🛰 위성 데이터",
-    gisIntelligence: "📍 GIS 인텔리전스",
-    aiReasoning: "🤖 AI 추론",
-    askOrca: "ORCA에게 질문",
-    questionTitle: "해양 환경에 대해 질문하세요.",
-    questionDescription:
-      "알고 싶은 내용을 ORCA에 알려주고 위치와 출발 시간을 선택하세요.",
-    decisionSupport: "● AI 의사결정 지원",
-    collaborativeNetwork: "협업 에이전트 네트워크",
-    analyzing: "분석 중",
-    systemReady: "시스템 준비 완료",
-    ocean: "해양",
-    wavesCurrents: "파도와 해류",
-    weather: "날씨",
-    windRainfall: "바람과 강수량",
-    satellite: "위성",
-    marineObservations: "해양 관측",
-    gis: "GIS",
-    locationConstraints: "위치 제약",
-    orcaReasoner: "ORCA 추론 엔진",
-    finalAssessment: "최종 평가",
-    assessment: "ORCA 평가",
-    marineRisk: "해양 위험 평가",
-    liveIntelligence: "실시간 인텔리전스",
-    recommendation: "ORCA 권고",
-    recommendationDescription:
-      "ORCA는 여러 환경 정보 소스를 결합하여 의사결정 지원 평가를 생성합니다.",
-    marineConditions: "해양 상태",
-    environmentalOverview: "환경 개요",
-    spatialIntelligence: "공간 인텔리전스",
-    reasoning: "추론",
-    riskBreakdown: "위험 분석",
-    evidence: "증거",
-    dataVerification: "데이터 검증",
-    footerDescription:
-      "협업 에이전트를 활용한 해양 생태계 추론",
-    footerText: "AI 기반 해양 의사결정 지원",
-    footerTech: "SIH 2026 • MARINE INTELLIGENCE",
-    selectLanguage: "언어 선택 · 23개 언어",
-    low: "낮음",
-    moderate: "보통",
-    high: "높음",
-    severe: "심각",
-  },
-
-  ar: {
-    marineEcosystem: "ذكاء النظام البيئي البحري",
-    systemOnline: "النظام متصل",
-    multiAgent: "الذكاء البحري متعدد الوكلاء",
-    title1: "افهم المحيط.",
-    title2: "اتخذ قرارات أفضل.",
-    description:
-      "تجمع ORCA بين المعلومات البحرية والطقس والمحيطات والأقمار الصناعية والمعلومات الجغرافية لتحليل الظروف البحرية الحقيقية.",
-    oceanIntelligence: "🌊 الذكاء البحري",
-    weatherAnalysis: "☁ تحليل الطقس",
-    satelliteData: "🛰 بيانات الأقمار الصناعية",
-    gisIntelligence: "📍 ذكاء GIS",
-    aiReasoning: "🤖 استدلال الذكاء الاصطناعي",
-    askOrca: "اسأل ORCA",
-    questionTitle: "اطرح سؤالاً حول البيئة البحرية.",
-    questionDescription:
-      "أخبر ORCA بما تريد معرفته، واختر الموقع ووقت المغادرة.",
-    decisionSupport: "● دعم القرار بالذكاء الاصطناعي",
-    collaborativeNetwork: "شبكة الوكلاء التعاونية",
-    analyzing: "جارٍ التحليل",
-    systemReady: "النظام جاهز",
-    ocean: "المحيط",
-    wavesCurrents: "الأمواج والتيارات",
-    weather: "الطقس",
-    windRainfall: "الرياح والأمطار",
-    satellite: "القمر الصناعي",
-    marineObservations: "الملاحظات البحرية",
-    gis: "GIS",
-    locationConstraints: "قيود الموقع",
-    orcaReasoner: "محرك ORCA للاستدلال",
-    finalAssessment: "التقييم النهائي",
-    assessment: "تقييم ORCA",
-    marineRisk: "تقييم المخاطر البحرية",
-    liveIntelligence: "الذكاء المباشر",
-    recommendation: "توصية ORCA",
-    recommendationDescription:
-      "تجمع ORCA عدة مصادر للمعلومات البيئية لإنشاء تقييم دعم القرار هذا.",
-    marineConditions: "الظروف البحرية",
-    environmentalOverview: "نظرة عامة بيئية",
-    spatialIntelligence: "الذكاء المكاني",
-    reasoning: "الاستدلال",
-    riskBreakdown: "تحليل المخاطر",
-    evidence: "الأدلة",
-    dataVerification: "التحقق من البيانات",
-    footerDescription:
-      "استدلال النظام البيئي البحري باستخدام وكلاء متعاونين",
-    footerText: "دعم القرار البحري المدعوم بالذكاء الاصطناعي",
-    footerTech: "SIH 2026 • الذكاء البحري",
-    selectLanguage: "اختر اللغة · 23 لغة",
-    low: "منخفض",
-    moderate: "متوسط",
-    high: "مرتفع",
-    severe: "شديد",
-  },
-};
-
-/* =========================================================
-   APP
-========================================================= */
-
-function App() {
-  const [showWelcome, setShowWelcome] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const [showResults, setShowResults] = useState(false);
-
-  const [query, setQuery] = useState("");
-
-  const [selectedTime, setSelectedTime] = useState("06:00");
-  const [selectedDate, setSelectedDate] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
-
-  const [assessmentLocation, setAssessmentLocation] =
-    useState<AssessmentLocation>({
-      name: "Paradip Coast",
-      latitude: 20.31,
-      longitude: 86.61,
-    });
-
-  const [assessment, setAssessment] = useState<Assessment>({
-    answer: demoData.answer,
-
-    risk: {
-      score: demoData.risk.score,
-      level: demoData.risk.level,
-      message:
-        "Conditions are moderately suitable based on the available marine data.",
-    },
-
-    weather: demoData.weather,
-    ocean: demoData.ocean,
-    satellite: demoData.satellite,
-    gis: demoData.gis,
-    breakdown: demoData.breakdown,
-    verification: demoData.verification,
-  });
-
-  /* =========================================================
-     LANGUAGE
-  ========================================================= */
-
-  const [language, setLanguage] = useState(() => {
-    try {
-      return localStorage.getItem("orca-language") || "en";
-    } catch {
-      return "en";
-    }
-  });
-
-  useEffect(() => {
-    function handleLanguageChange(event: Event) {
-      const customEvent = event as CustomEvent<{
-        language?: string;
-      }>;
-
-      const newLanguage =
-        customEvent.detail?.language || "en";
-
-      setLanguage(
-        translations[newLanguage]
-          ? newLanguage
-          : "en"
-      );
-    }
-
-    window.addEventListener(
-      "orca-language-change",
-      handleLanguageChange
-    );
-
-    return () => {
-      window.removeEventListener(
-        "orca-language-change",
-        handleLanguageChange
-      );
-    };
-  }, []);
-
-  const t = (
-    key: keyof Translation
-  ): string => {
-    return (
-      translations[language]?.[key] ??
-      translations.en[key]
-    );
-  };
-
-  /* =========================================================
-     WELCOME
-  ========================================================= */
-
-  function handleWelcomeComplete() {
-    setShowWelcome(false);
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  }
-
-  function mapBackendResponse(
-    result: Awaited<ReturnType<typeof askOrca>>
-  ): Assessment {
-
-    const marine =
-      result.marine_conditions ?? {};
-
-    const weather =
-      marine.weather ?? {};
-
-    const ocean =
-      marine.ocean ?? {};
-
-    const risk =
-      marine.risk_assessment ?? {};
-
-    const recommendation =
-      result.orca_recommendation ?? {};
-
-    const fishingZone =
-      result.fishing_zone ?? {};
-
-    const nearestPFZ =
-      fishingZone.nearest_pfz ?? null;
-
-    const restrictedZone =
-      result.restricted_zone ?? {};
-
-
-    // Backend ka score roughly 0-11 range mein hai.
-    // Frontend RiskCard 0-100 expect karta hai.
-    const rawRiskScore =
-      Number(
-        recommendation.marine_risk_score ??
-        risk.risk_score ??
-        0
-      );
-
-
-    const frontendRiskScore =
-      Math.min(
-        100,
-        Math.max(
-          0,
-          Math.round(
-            (rawRiskScore / 11) * 100
-          )
-        )
-      );
-
-
-    const backendRiskLevel =
-      String(
-        recommendation.marine_risk ??
-        risk.risk_level ??
-        "Unknown"
-      );
-
-
-    const normalizedBackendRiskLevel =
-      backendRiskLevel
-        .toUpperCase()
-        .replace("MEDIUM", "MODERATE");
-
-    const frontendRiskLevel =
-      ["LOW", "MODERATE", "HIGH", "SEVERE"].includes(
-        normalizedBackendRiskLevel
-      )
-        ? normalizedBackendRiskLevel
-        : getRiskLevel(frontendRiskScore);
-
-
-    const temperature =
-      Number(
-        weather.temperature ?? 0
-      );
-
-    const windSpeed =
-      Number(
-        weather.wind_speed ?? 0
-      );
-
-    const precipitation =
-      Number(
-        weather.precipitation ?? 0
-      );
-
-    const waveHeight =
-      Number(
-        ocean.wave_height ?? 0
-      );
-
-    const wavePeriod =
-      Number(
-        ocean.wave_period ?? 0
-      );
-
-    const currentSpeed =
-      Number(
-        ocean.current_speed ?? 0
-      );
-
-    const sst =
-      Number(
-        ocean.sst ?? 0
-      );
-
-
-    // -------------------------
-    // Risk breakdown
-    // -------------------------
-
-    let windRisk = 0;
-
-    if (
-      windSpeed >= 10 &&
-      windSpeed <= 20
-    ) {
-      windRisk = 1;
-    } else if (
-      windSpeed > 20 &&
-      windSpeed <= 30
-    ) {
-      windRisk = 2;
-    } else if (
-      windSpeed > 30
-    ) {
-      windRisk = 3;
-    }
-
-
-    let waveRisk = 0;
-
-    if (
-      waveHeight >= 1 &&
-      waveHeight <= 2
-    ) {
-      waveRisk = 1;
-    } else if (
-      waveHeight > 2 &&
-      waveHeight <= 3
-    ) {
-      waveRisk = 2;
-    } else if (
-      waveHeight > 3
-    ) {
-      waveRisk = 3;
-    }
-
-
-    const weatherRisk =
-      precipitation > 5 ? 1 : 0;
-
-
-    let oceanRisk = 0;
-
-    if (
-      currentSpeed >= 1 &&
-      currentSpeed <= 2
-    ) {
-      oceanRisk += 1;
-    } else if (
-      currentSpeed > 2
-    ) {
-      oceanRisk += 2;
-    }
-
-
-    if (wavePeriod < 6) {
-      oceanRisk += 1;
-    }
-
-
-    // Good PFZ ko thoda positive contribution.
-    let pfzRisk = 0;
-
-    if (
-      nearestPFZ &&
-      (
-        nearestPFZ.suitability_level ===
-          "High" ||
-        nearestPFZ.suitability_level ===
-          "Moderate"
-      )
-    ) {
-      pfzRisk = -1;
-    }
-
-
-    const isRestricted =
-      Boolean(
-        restrictedZone.restricted
-      );
-
-
-    const gisRisk =
-      isRestricted ? 3 : 0;
-
-
-    return {
-
-      answer:
-        recommendation.recommendation ??
-        risk.recommendation ??
-        "Assessment completed.",
-
-
-      risk: {
-
-        score:
-          frontendRiskScore,
-
-        level:
-          frontendRiskLevel,
-
-        message:
-          recommendation.recommendation ??
-          risk.message ??
-          "Marine risk assessment completed.",
-      },
-
-
-      weather: {
-
-        temperature,
-
-        wind_speed:
-          windSpeed,
-
-        precipitation,
-      },
-
-
-      ocean: {
-
-        wave_height:
-          waveHeight,
-
-        wave_period:
-          wavePeriod,
-
-        current_speed:
-          currentSpeed,
-
-        sst,
-      },
-
-
-      satellite: {
-
-        pfz_available:
-          Boolean(nearestPFZ),
-
-        pfz:
-          nearestPFZ
-            ? (
-                nearestPFZ.suitability_level ??
-                "Available"
-              )
-            : "Unavailable",
-      },
-
-
-      gis: {
-
-        restricted_zone:
-          isRestricted,
-
-        location_name:
-          restrictedZone.zone_name ??
-          restrictedZone.reason ??
-          (
-            isRestricted
-              ? "Restricted marine zone"
-              : "Selected marine location"
-          ),
-      },
-
-
-      breakdown: {
-
-        wind:
-          windRisk,
-
-        waves:
-          waveRisk,
-
-        weather:
-          weatherRisk,
-
-        ocean:
-          oceanRisk,
-
-        pfz:
-          pfzRisk,
-
-        gis:
-          gisRisk,
-      },
-
-
-      verification: {
-
-        verified:
-          result.status ===
-          "success",  
-
-        // Temporary UI compatibility value.
-        // Isko actual confidence/data-quality
-        // calculation se later replace karenge.
-        confidence:
-          result.status ===
-          "success"
-            ? 0.8
-            : 0,
-      },
-    };
-  }
-  function getRiskLevel(score: number): string {
-    if (score <= 30) return "LOW";
-    if (score <= 50) return "MODERATE";
-    if (score <= 70) return "HIGH";
-    return "SEVERE";
-  }
-
-  /* =========================================================
-     BACKEND API
-  ========================================================= */
-
-  async function analyzeWithBackend(
-    data: {
-      question: string;
-      latitude: number;
-      longitude: number;
-      datetime: string;
-      locationName: string;
-    }
-  ): Promise<Assessment> {
-    const result = await askOrca(data);
-
-    if (result.status !== "success") {
-      throw new Error(
-        "ORCA backend returned an unsuccessful response."
-      );
-    }
-
-    return mapBackendResponse(result);
-  }
-
-  /* =========================================================
-     ASK ORCA
-  ========================================================= */
-
-  async function handleAsk(
-    data: {
-      question: string;
-      latitude: number;
-      longitude: number;
-      datetime: string;
-      locationName: string;
-    }
-  ) {
-    setQuery(data.question);
-
-    setAssessmentLocation({
-      name: data.locationName,
-      latitude: data.latitude,
-      longitude: data.longitude,
-    });
-
-    const submittedDate =
-      data.datetime.split("T")[0] || selectedDate;
-    setSelectedDate(submittedDate);
-
-    const submittedTime =
-      data.datetime
-        .split("T")[1]
-        ?.slice(0, 5) ||
-      "06:00";
-
-    setSelectedTime(
-      submittedTime
-    );
-
-    setError(false);
-    setLoading(true);
-    setShowResults(false);
-
-    try {
-      const result =
-        await analyzeWithBackend(data);
-
-      setAssessment(result);
-
-    } catch (backendError) {
-      console.error("ORCA analysis failed:", backendError);
-      setError(true);
-      setLoading(false);
-      setShowResults(false);
-      return;
-    }
-
-    setLoading(false);
-    setShowResults(true);
-
-    setTimeout(() => {
-      document
-        .getElementById(
-          "assessment-results"
-        )
-        ?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-    }, 150);
-  }
-
-  /* =========================================================
-     WHAT IF
-  ========================================================= */
-
-  async function handleTimeChange(
-    time: string
-  ) {
-    if (time === selectedTime) {
-      return;
-    }
-
-    setSelectedTime(time);
-    setLoading(true);
-    setError(false);
-
-    const datetime = `${selectedDate}T${time}`;
-
-    try {
-      const result =
-        await analyzeWithBackend({
-          question: query,
-
-          latitude:
-            assessmentLocation.latitude,
-
-          longitude:
-            assessmentLocation.longitude,
-
-          datetime,
-
-          locationName:
-            assessmentLocation.name,
-        });
-
-      setAssessment(result);
-
-    } catch (backendError) {
-      console.error("What-if analysis failed:", backendError);
-      setError(true);
-      setShowResults(false);
-    }
-
-    setLoading(false);
-  }
-
-  /* =========================================================
-     WELCOME
-  ========================================================= */
-
-  if (showWelcome) {
-    return (
-      <WelcomeScreen
-        onComplete={
-          handleWelcomeComplete
-        }
-      />
-    );
-  }
-
-  /* =========================================================
-     ERROR
-  ========================================================= */
-
-  if (error) {
-    return <ErrorScreen />;
-  }
-
-  /* =========================================================
-     MAIN APP
-  ========================================================= */
-
-  return (
-    <div className="app">
-
-      <Navbar />
-
-      <main>
-
-        {/* HERO */}
-
-        <section className="hero-section">
-
-          <div className="hero-grid" />
-
-          <div className="hero-orb hero-orb-one" />
-
-          <div className="hero-orb hero-orb-two" />
-
-          <div className="hero-content">
-
-            <div className="hero-eyebrow">
-
-              <span className="status-dot" />
-
-              {t("multiAgent")}
-
-            </div>
-
-            <h1>
-
-              {t("title1")}
-
-              <span>
-                {t("title2")}
-              </span>
-
-            </h1>
-
-            <p className="hero-description">
-
-              {t("description")}
-
-            </p>
-
-            <div className="hero-agent-row">
-
-              <span>
-                {t("oceanIntelligence")}
-              </span>
-
-              <span>
-                {t("weatherAnalysis")}
-              </span>
-
-              <span>
-                {t("satelliteData")}
-              </span>
-
-              <span>
-                {t("gisIntelligence")}
-              </span>
-
-              <span>
-                {t("aiReasoning")}
-              </span>
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* QUERY */}
-
-        <section className="query-section">
-
-          <div className="section-intro">
-
-            <div>
-
-              <p className="section-label">
-                {t("askOrca")}
-              </p>
-
-              <h2>
-
-                {t("questionTitle")}
-
-              </h2>
-
-              <p>
-                {t("questionDescription")}
-              </p>
-
-            </div>
-
-            <div className="query-badge">
-              {t("decisionSupport")}
-            </div>
-
-          </div>
-
-          <QueryForm
-            onAsk={handleAsk}
-            loading={loading}
-          />
-
-        </section>
-
-        {/* AGENT NETWORK */}
-
-        <section className="agent-network-section">
-
-          <div className="agent-network">
-
-            <div className="agent-network-header">
-
-              <h2>
-                {t("collaborativeNetwork")}
-              </h2>
-
-              <div className="network-status">
-
-                <span className="status-dot" />
-
-                {loading
-                  ? t("analyzing")
-                  : t("systemReady")}
-
-              </div>
-
-            </div>
-
-            <div className="agent-flow">
-
-              <div className="agent-node">
-
-                <div className="agent-icon">
-                  🌊
-                </div>
-
-                <strong>
-                  {t("ocean")}
-                </strong>
-
-                <span>
-                  {t("wavesCurrents")}
-                </span>
-
-              </div>
-
-              <div className="flow-arrow">
-                →
-              </div>
-
-              <div className="agent-node">
-
-                <div className="agent-icon">
-                  ☁
-                </div>
-
-                <strong>
-                  {t("weather")}
-                </strong>
-
-                <span>
-                  {t("windRainfall")}
-                </span>
-
-              </div>
-
-              <div className="flow-arrow">
-                →
-              </div>
-
-              <div className="agent-node">
-
-                <div className="agent-icon">
-                  🛰
-                </div>
-
-                <strong>
-                  {t("satellite")}
-                </strong>
-
-                <span>
-                  {t("marineObservations")}
-                </span>
-
-              </div>
-
-              <div className="flow-arrow">
-                →
-              </div>
-
-              <div className="agent-node">
-
-                <div className="agent-icon">
-                  📍
-                </div>
-
-                <strong>
-                  {t("gis")}
-                </strong>
-
-                <span>
-                  {t("locationConstraints")}
-                </span>
-
-              </div>
-
-              <div className="flow-arrow">
-                →
-              </div>
-
-              <div className="agent-node final-agent">
-
-                <div className="agent-icon">
-                  🤖
-                </div>
-
-                <strong>
-                  {t("orcaReasoner")}
-                </strong>
-
-                <span>
-                  {t("finalAssessment")}
-                </span>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* LOADING */}
-
-        {loading && (
-          <LoadingScreen />
-        )}
-
-        {/* RESULTS */}
-
-        {showResults &&
-          !loading && (
-
-            <section
-              id="assessment-results"
-              className="content-section results-container"
-            >
-
-              {/* RESULT HEADER */}
-
-              <div className="result-header">
-
-                <div>
-
-                  <p className="section-label">
-                    {t("assessment")}
-                  </p>
-
-                  <h2>
-                    {t("marineRisk")}
-                  </h2>
-
-                  <p className="query-preview">
-                    “{query}”
-                  </p>
-
-                  <p className="query-location">
-
-                    📍{" "}
-                    {assessmentLocation.name}
-
-                    {" · "}
-
-                    🕐{" "}
-                    {selectedTime}
-
-                  </p>
-
-                </div>
-
-                <div className="live-badge">
-
-                  <span />
-
-                  {t("liveIntelligence")}
-
-                </div>
-
-              </div>
-
-              {/* RECOMMENDATION */}
-
-              <div className="recommendation-card">
-
-                <div className="recommendation-icon">
-                  ✓
-                </div>
-
-                <div className="recommendation-content">
-
-                  <span className="section-label">
-                    {t("recommendation")}
-                  </span>
-
-                  <h3>
-                    {assessment.answer}
-                  </h3>
-
-                  <p>
-                    {t(
-                      "recommendationDescription"
-                    )}
-                  </p>
-
-                </div>
-
-              </div>
-
-              {/* RISK */}
-
-              <div className="result-section">
-
-                <RiskCard
-                  score={
-                    assessment.risk.score
-                  }
-
-                  level={
-                    assessment.risk.level
-                  }
-
-                  message={
-                    assessment.risk.message
-                  }
-                />
-
-              </div>
-
-              {/* MARINE CONDITIONS */}
-
-              <div className="result-section">
-
-                <div className="section-heading">
-
-                  <p className="section-label">
-                    {t("marineConditions")}
-                  </p>
-
-                  <h2>
-                    {t(
-                      "environmentalOverview"
-                    )}
-                  </h2>
-
-                </div>
-
-                <MarineCards
-                  weather={
-                    assessment.weather
-                  }
-
-                  ocean={
-                    assessment.ocean
-                  }
-
-                  satellite={
-                    assessment.satellite
-                  }
-
-                  gis={
-                    assessment.gis
-                  }
-                />
-
-              </div>
-
-              {/* MAP */}
-
-              <div className="result-section">
-
-                <div className="section-heading">
-
-                  <p className="section-label">
-                    {t(
-                      "spatialIntelligence"
-                    )}
-                  </p>
-
-                  <h2>
-                    {assessmentLocation.name}
-                  </h2>
-
-                </div>
-
-                <MarineMap
-                  latitude={
-                    assessmentLocation.latitude
-                  }
-
-                  longitude={
-                    assessmentLocation.longitude
-                  }
-
-                  locationName={
-                    assessmentLocation.name
-                  }
-                />
-
-              </div>
-
-              {/* RISK BREAKDOWN */}
-
-              <div className="result-section">
-
-                <div className="section-heading">
-
-                  <p className="section-label">
-                    {t("reasoning")}
-                  </p>
-
-                  <h2>
-                    {t("riskBreakdown")}
-                  </h2>
-
-                </div>
-
-                <RiskBreakdown
-                  breakdown={
-                    assessment.breakdown
-                  }
-                />
-
-              </div>
-
-              {/* EVIDENCE */}
-
-              <div className="result-section">
-
-                <div className="section-heading">
-
-                  <p className="section-label">
-                    {t("evidence")}
-                  </p>
-
-                  <h2>
-                    {t(
-                      "dataVerification"
-                    )}
-                  </h2>
-
-                </div>
-
-                <EvidencePanel
-                  verification={
-                    assessment.verification
-                  }
-                />
-
-              </div>
-
-              {/* WHAT IF */}
-
-              <div className="result-section">
-
-                <WhatIfPanel
-                  selectedTime={
-                    selectedTime
-                  }
-
-                  onTimeChange={
-                    handleTimeChange
-                  }
-
-                  loading={
-                    loading
-                  }
-                />
-
-              </div>
-
-            </section>
-          )}
-
-      </main>
-
-      {/* FOOTER */}
-
-      <footer>
-
-        <div className="footer-brand">
-
-          <div className="footer-logo">
-            🐋
-          </div>
-
-          <div>
-
-            <strong>
-              ORCA
-            </strong>
-
-            <span>
-              {t("footerDescription")}
-            </span>
-
-          </div>
-
-        </div>
-
-        <p>
-          {t("footerText")}
-        </p>
-
-        <div className="footer-tech">
-          {t("footerTech")}
-        </div>
-
-      </footer>
-
-    </div>
-  );
+import { analyzeOrca, getWhatIf, getWatcher, getRouteAnalysis, getFishingIntelligence, getOfficialAlerts, type RouteAnalysisResponse, type FishingIntelligenceResponse, type OfficialAlertsResponse } from "./services/api";
+import { LANGUAGES, saveLanguage, useOrcaLanguage, ui, type LanguageCode } from "./i18n";
+
+type RoleId = "fisherman" | "researcher" | "boat-operator" | "traveler" | "environmentalist" | "authority";
+type View = "dashboard" | "ask" | "map" | "evidence" | "history" | "alerts" | "whatif" | "profile" | "language";
+
+type Role = { id: RoleId; icon: string; title: string; description: string };
+type Vessel = { type: string; size: "small" | "medium" | "large"; fuelCapacity: number; currentFuel: number; consumption: number; speed: number; reserve: number };
+type Result = any;
+type HistoryItem = { id: string; question: string; location: string; date: string; time: string; role: string; decision: string; risk: number | null };
+
+const ROLES: Role[] = [
+  { id: "fisherman", icon: "🎣", title: "Fisherman", description: "Fishing windows, marine risk, PFZ and vessel safety" },
+  { id: "researcher", icon: "🔬", title: "Researcher", description: "Marine observations, SST, currents and evidence" },
+  { id: "boat-operator", icon: "🚤", title: "Boat Operator", description: "Operating conditions, route awareness and range" },
+  { id: "traveler", icon: "🧳", title: "Traveler / Public", description: "Coastal weather, waves and public awareness" },
+  { id: "environmentalist", icon: "🌱", title: "Environmentalist", description: "Ocean health and environmental indicators" },
+  { id: "authority", icon: "🏛️", title: "Coastal Authority", description: "Risk areas, GIS zones and proactive monitoring" },
+];
+
+const COASTAL_PRESETS = [
+  { name: "Paradip Offshore", latitude: 20.15, longitude: 86.75 },
+  { name: "Puri Offshore", latitude: 19.75, longitude: 86.05 },
+  { name: "Digha Offshore", latitude: 21.55, longitude: 87.10 },
+  { name: "Visakhapatnam Offshore", latitude: 17.55, longitude: 83.45 },
+  { name: "Kakinada Offshore", latitude: 16.90, longitude: 82.45 },
+  { name: "Chennai Offshore", latitude: 13.00, longitude: 80.40 },
+  { name: "Tuticorin Offshore", latitude: 8.65, longitude: 78.20 },
+  { name: "Rameswaram Offshore", latitude: 9.20, longitude: 79.35 },
+  { name: "Kochi Offshore", latitude: 9.90, longitude: 76.00 },
+  { name: "Mangalore Offshore", latitude: 12.80, longitude: 74.65 },
+  { name: "Goa Offshore", latitude: 15.30, longitude: 73.90 },
+  { name: "Mumbai Offshore", latitude: 18.85, longitude: 72.75 },
+  { name: "Kandla Offshore", latitude: 22.95, longitude: 68.80 },
+  { name: "Port Blair Offshore", latitude: 11.55, longitude: 92.70 },
+];
+
+const defaultVessel: Vessel = { type: "Fishing Boat", size: "small", fuelCapacity: 100, currentFuel: 80, consumption: 8, speed: 18, reserve: 20 };
+const defaultDeparture = { name: "Current location", latitude: 20.27, longitude: 86.69 };
+const emptyDestination = { name: "", latitude: null as number | null, longitude: null as number | null };
+
+function todayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+function currentTimeString() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function prettyTime(value: string) {
+  const [h, m] = value.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+function roleNeedsVessel(role: RoleId | null) { return role === "fisherman" || role === "boat-operator"; }
+function riskTone(level: string) {
+  const l = level.toLowerCase();
+  if (l.includes("high") || l.includes("severe") || l === "avoid") return "danger";
+  if (l.includes("medium") || l.includes("moderate") || l === "caution" || l === "watch") return "warning";
+  return "safe";
 }
 
-export default App;
+function displayValue(value: unknown, fallback = "Not available"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(v => displayValue(v, "")).filter(Boolean).join(" · ") || fallback;
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const preferred = obj.text ?? obj.message ?? obj.label ?? obj.name ?? obj.status ?? obj.decision ?? obj.recommendation;
+    if (preferred !== undefined && preferred !== null && typeof preferred !== "object") return String(preferred);
+    const parts = Object.entries(obj).map(([k,v]) => {
+      const text = displayValue(v, "");
+      return text ? `${k.replaceAll("_", " ")}: ${text}` : "";
+    }).filter(Boolean);
+    return parts.join(" · ") || fallback;
+  }
+  return fallback;
+}
+
+function displayDecision(value: unknown): string {
+  return displayValue(value, "INSUFFICIENT DATA")
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export default function App() {
+  const { language, languageInfo } = useOrcaLanguage();
+  const L = (key: Parameters<typeof ui>[1]) => ui(language, key);
+  const [screen, setScreen] = useState<"welcome" | "roles" | "verify" | "vessel" | "ask" | "loading" | "dashboard">("welcome");
+  const [enteredOrca, setEnteredOrca] = useState(false);
+  const [role, setRole] = useState<Role | null>(null);
+  const [verified, setVerified] = useState(false);
+  const [verificationId, setVerificationId] = useState("");
+  const [verificationError, setVerificationError] = useState("");
+  const [vessel, setVessel] = useState<Vessel>(defaultVessel);
+  const [question, setQuestion] = useState("");
+  const [location, setLocation] = useState(COASTAL_PRESETS[0].name);
+  const [locationSource, setLocationSource] = useState("preset");
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [coords, setCoords] = useState({ latitude: COASTAL_PRESETS[0].latitude, longitude: COASTAL_PRESETS[0].longitude });
+  const [departure, setDeparture] = useState(defaultDeparture);
+  const [destination, setDestination] = useState(emptyDestination);
+  const [departureLoading, setDepartureLoading] = useState(false);
+  const [date, setDate] = useState(todayString());
+  const [time, setTime] = useState(currentTimeString());
+  const [result, setResult] = useState<Result | null>(null);
+  const [activeView, setActiveView] = useState<View>("dashboard");
+  const [error, setError] = useState("");
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [watcherOn, setWatcherOn] = useState(true);
+  const [watcherData, setWatcherData] = useState<any>(null);
+  const [watcherLoading, setWatcherLoading] = useState(false);
+  const [whatIfLoading, setWhatIfLoading] = useState(false);
+  const [whatIfResult, setWhatIfResult] = useState<Result | null>(null);
+  const [fishingIntel, setFishingIntel] = useState<FishingIntelligenceResponse | null>(null);
+  const [fishingIntelLoading, setFishingIntelLoading] = useState(false);
+  const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysisResponse | null>(null);
+  const [officialAlerts, setOfficialAlerts] = useState<OfficialAlertsResponse | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    try { return JSON.parse(localStorage.getItem("orca-query-history") || "[]"); } catch { return []; }
+  });
+
+  // Start every fresh app session at the Welcome page.
+  useEffect(() => {
+    setScreen("welcome");
+  }, []);
+
+  const roleId = role?.id ?? null;
+  const effectiveRole = roleId === "fisherman" && !verified ? "fisherman-public" : roleId || "fisherman-public";
+  const vesselRequired = roleNeedsVessel(roleId) && (roleId !== "fisherman" || verified);
+
+  const roleInfo = useMemo(() => {
+    const map: Record<string, { title: string; subtitle: string; action: string }> = {
+      fisherman: { title: "Fisherman Decision Support", subtitle: "Know when to go, when to wait and what conditions ORCA is seeing.", action: "Fishing decision" },
+      "fisherman-public": { title: "Public Marine Information", subtitle: "Public weather, ocean and coastal safety information.", action: "Marine condition" },
+      researcher: { title: "Marine Research Intelligence", subtitle: "Explore observations, ocean state and evidence sources.", action: "Research insight" },
+      "boat-operator": { title: "Vessel Operations Intelligence", subtitle: "Assess operating conditions, range and marine risk.", action: "Operating assessment" },
+      traveler: { title: "Coastal Conditions", subtitle: "Understand waves, wind and weather before visiting the coast.", action: "Coastal condition" },
+      environmentalist: { title: "Ocean Health Intelligence", subtitle: "Review SST, currents and satellite-linked marine evidence.", action: "Environmental insight" },
+      authority: { title: "Coastal Authority Intelligence", subtitle: "Monitor risk, restricted zones and marine conditions.", action: "Risk assessment" },
+    };
+    return map[effectiveRole] || map["fisherman-public"];
+  }, [effectiveRole]);
+
+  const weather = result?.weather || result?.marine_conditions?.weather || {};
+  const ocean = result?.ocean || result?.marine_conditions?.ocean || {};
+  const rawRiskScore = Number(result?.risk_score ?? result?.orca_recommendation?.marine_risk_score ?? result?.marine_conditions?.risk_assessment?.risk_score);
+  const riskScore = Number.isFinite(rawRiskScore)
+    ? (rawRiskScore <= 12 ? Math.round((rawRiskScore / 12) * 100) : Math.round(Math.min(100, rawRiskScore)))
+    : null;
+  const riskLevel = String(result?.risk_level ?? result?.orca_recommendation?.marine_risk ?? result?.marine_conditions?.risk_assessment?.risk_level ?? "Unknown");
+  const decision = displayDecision(result?.final_decision ?? result?.decision ?? result?.orca_recommendation?.decision);
+  const restricted = Boolean(result?.restricted_zone?.restricted || result?.gis?.restricted);
+  const marineAvailable = result?.marine_context?.is_marine === true && ocean?.status === "available";
+  const dataQuality = result?.marine_conditions?.data_quality?.overall || "unknown";
+
+  const usableFuel = Math.max(0, vessel.currentFuel * (1 - vessel.reserve / 100));
+  const endurance = vessel.consumption > 0 ? usableFuel / vessel.consumption : 0;
+  const maxRange = endurance * vessel.speed;
+  const oneWayRange = maxRange / 2;
+
+  useEffect(() => {
+    if (activeView !== "alerts" || !watcherOn || !result) return;
+    setWatcherLoading(true);
+    getWatcher({ latitude: coords.latitude, longitude: coords.longitude, date, time })
+      .then(setWatcherData)
+      .catch(() => setWatcherData({ status: "unavailable", watcher: "NO_DATA", message: "Live monitoring data is unavailable." }))
+      .finally(() => setWatcherLoading(false));
+  }, [activeView, watcherOn, result, date, time, coords.latitude, coords.longitude]);
+
+  function resetForRole(next: Role) {
+    setRole(next); setVerified(false); setVerificationId(""); setVerificationError(""); setResult(null); setFishingIntel(null); setError(""); setQuestion(""); setVessel(defaultVessel); setDeparture(defaultDeparture); setDestination(emptyDestination); setDepartureLoading(false); setRouteAnalysis(null);
+    setScreen(next.id === "fisherman" ? "verify" : roleNeedsVessel(next.id) ? "vessel" : "ask");
+  }
+
+  function verifyFisherman() {
+    const id = verificationId.trim().toUpperCase();
+    if (id === "DEMO-FISH-001") { setVerified(true); setVerificationError(""); setScreen("vessel"); }
+    else { setVerified(false); setVerificationError("Demo verification requires DEMO-FISH-001. This is a demonstration credential, not an official identity check."); }
+  }
+
+  async function reverseGeocode(latitude: number, longitude: number) {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=12&addressdetails=1`, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error("reverse geocode failed");
+      const data = await res.json();
+      const a = data?.address || {};
+      return a.city || a.town || a.village || a.municipality || a.suburb || a.county || data?.display_name?.split(",")?.[0] || "Current location";
+    } catch { return "Current location"; }
+  }
+
+  async function useCurrentLocation() {
+    if (!("geolocation" in navigator)) { setError("This browser does not provide location access."); return; }
+    setLocationLoading(true); setError("");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const latitude = Number(pos.coords.latitude.toFixed(5));
+      const longitude = Number(pos.coords.longitude.toFixed(5));
+      const name = await reverseGeocode(latitude, longitude);
+      setCoords({ latitude, longitude });
+      setLocation(`${name} · Current location`);
+      setLocationSource("gps");
+      if (!vesselRequired) setDestination({ name: `${name} · Current location`, latitude, longitude });
+      setLocationLoading(false);
+    }, (err) => {
+      setLocationLoading(false);
+      setError(err.code === 1 ? "Location permission was denied. Allow location access in the browser." : "Could not read your current location.");
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+  }
+
+  async function useCurrentDepartureLocation() {
+    if (!("geolocation" in navigator)) { setError("This browser does not provide location access."); return; }
+    setDepartureLoading(true); setError("");
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const latitude = Number(pos.coords.latitude.toFixed(5));
+      const longitude = Number(pos.coords.longitude.toFixed(5));
+      const name = await reverseGeocode(latitude, longitude);
+      setDeparture({ name: `${name} · Current location`, latitude, longitude });
+      setDepartureLoading(false);
+    }, (err) => {
+      setDepartureLoading(false);
+      setError(err.code === 1 ? "Location permission was denied. Allow location access for the departure point." : "Could not read your current departure location.");
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 });
+  }
+
+  useEffect(() => {
+    if (screen === "vessel" && vesselRequired && departure.name === "Current location") useCurrentDepartureLocation();
+    if (screen === "ask" && !vesselRequired && locationSource !== "gps") useCurrentLocation();
+  }, [screen, vesselRequired]);
+
+  const routeTarget = useMemo(() => {
+    if (vesselRequired && destination.latitude != null && destination.longitude != null) {
+      return { latitude: destination.latitude, longitude: destination.longitude, label: destination.name || "Selected offshore target" };
+    }
+    return { latitude: coords.latitude, longitude: coords.longitude, label: location };
+  }, [vesselRequired, destination, coords.latitude, coords.longitude, location]);
+
+  useEffect(() => {
+    if (activeView !== "map" || !result || !vesselRequired) return;
+    setRouteLoading(true);
+    getRouteAnalysis({
+      originLatitude: departure.latitude,
+      originLongitude: departure.longitude,
+      targetLatitude: routeTarget.latitude,
+      targetLongitude: routeTarget.longitude,
+      date,
+      time,
+      cruisingSpeed: vessel.speed,
+      consumptionLph: vessel.consumption,
+      usableFuelL: usableFuel,
+    })
+      .then(setRouteAnalysis)
+      .catch(() => setRouteAnalysis({ status: "unavailable", routes: [], message: "Live route analysis is unavailable." }))
+      .finally(() => setRouteLoading(false));
+  }, [activeView, result, vesselRequired, departure.latitude, departure.longitude, routeTarget.latitude, routeTarget.longitude, date, time, vessel.speed, vessel.consumption, usableFuel]);
+
+  useEffect(() => {
+    if (activeView !== "alerts" || !result) return;
+    getOfficialAlerts({ latitude: routeTarget.latitude, longitude: routeTarget.longitude })
+      .then(setOfficialAlerts)
+      .catch(() => setOfficialAlerts(null));
+  }, [activeView, result, routeTarget.latitude, routeTarget.longitude]);
+
+  function startVoice() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Voice input is unavailable in this browser. Open ORCA in the latest Chrome or Edge and allow microphone access.");
+      return;
+    }
+    if (listening) return;
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = languageInfo?.speechCode || "en-IN";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onstart = () => { setListening(true); setError(""); };
+      recognition.onend = () => setListening(false);
+      recognition.onnomatch = () => { setListening(false); setError("ORCA could not understand the voice. Please speak again or type your question."); };
+      recognition.onerror = (event: any) => {
+        setListening(false);
+        const code = String(event?.error || "");
+        const message = code === "not-allowed" || code === "service-not-allowed"
+          ? "Microphone access was blocked. Allow microphone permission for ORCA, then try again."
+          : code === "no-speech"
+            ? "No speech was detected. Tap the microphone and speak your question."
+            : "Voice input could not start. Open ORCA in Chrome/Edge and allow microphone access.";
+        setError(message);
+      };
+      recognition.onresult = (event: any) => {
+        const transcript = event?.results?.[0]?.[0]?.transcript;
+        if (transcript) setQuestion(transcript);
+      };
+      recognition.start();
+    } catch {
+      setListening(false);
+      setError("Voice input could not start. Please allow microphone access and try again.");
+    }
+  }
+
+  function localizedSpeechText(text: string) {
+    const key = text.trim().toLowerCase();
+    const translations: Record<string, Partial<Record<LanguageCode, string>>> = {
+      "conditions appear relatively favorable for the selected hour based on the available live marine data.": {
+        hi: "चयनित समय के लिए उपलब्ध लाइव समुद्री डेटा के आधार पर परिस्थितियाँ अपेक्षाकृत अनुकूल दिखाई देती हैं।",
+        or: "ଚୟନିତ ସମୟ ପାଇଁ ଉପଲବ୍ଧ ଲାଇଭ୍ ସାମୁଦ୍ରିକ ତଥ୍ୟ ଆଧାରରେ ପରିସ୍ଥିତି ତୁଳନାମୂଳକ ଭାବେ ଅନୁକୂଳ ଦେଖାଯାଉଛି।",
+        bn: "নির্বাচিত সময়ের জন্য উপলব্ধ লাইভ সামুদ্রিক তথ্যের ভিত্তিতে পরিস্থিতি তুলনামূলকভাবে অনুকূল বলে মনে হচ্ছে।",
+        as: "নিৰ্বাচিত সময়ৰ বাবে উপলব্ধ লাইভ সামুদ্ৰিক তথ্যৰ ভিত্তিত পৰিস্থিতি তুলনামূলকভাৱে অনুকূল যেন লাগে।",
+        gu: "પસંદ કરેલા સમય માટે ઉપલબ્ધ લાઇવ દરિયાઈ ડેટાના આધારે પરિસ્થિતિઓ તુલનાત્મક રીતે અનુકૂળ દેખાય છે.",
+        mr: "निवडलेल्या वेळेसाठी उपलब्ध थेट सागरी डेटाच्या आधारे परिस्थिती तुलनेने अनुकूल दिसत आहे.",
+        pa: "ਚੁਣੇ ਗਏ ਸਮੇਂ ਲਈ ਉਪਲਬਧ ਲਾਈਵ ਸਮੁੰਦਰੀ ਡੇਟਾ ਦੇ ਆਧਾਰ 'ਤੇ ਹਾਲਾਤ ਕਾਫ਼ੀ ਅਨੁਕੂਲ ਦਿਖਾਈ ਦਿੰਦੇ ਹਨ।",
+        ta: "தேர்ந்தெடுக்கப்பட்ட நேரத்திற்கான நேரடி கடல் தரவின் அடிப்படையில் நிலைமைகள் ஒப்பீட்டளவில் சாதகமாகத் தெரிகின்றன.",
+        te: "ఎంచుకున్న సమయానికి అందుబాటులో ఉన్న ప్రత్యక్ష సముద్ర డేటా ఆధారంగా పరిస్థితులు సాపేక్షంగా అనుకూలంగా కనిపిస్తున్నాయి.",
+        kn: "ಆಯ್ಕೆ ಮಾಡಿದ ಸಮಯಕ್ಕೆ ಲಭ್ಯವಿರುವ ನೇರ ಸಮುದ್ರ ದತ್ತಾಂಶದ ಆಧಾರದ ಮೇಲೆ ಪರಿಸ್ಥಿತಿಗಳು ತುಲನಾತ್ಮಕವಾಗಿ ಅನುಕೂಲಕರವಾಗಿವೆ.",
+        ml: "തിരഞ്ഞെടുത്ത സമയത്തേക്കുള്ള ലഭ്യമായ തത്സമയ സമുദ്ര ഡാറ്റയുടെ അടിസ്ഥാനത്തിൽ സാഹചര്യങ്ങൾ താരതമ്യേന അനുകൂലമാണ്.",
+        ur: "منتخب وقت کے لیے دستیاب لائیو سمندری ڈیٹا کی بنیاد پر حالات نسبتاً سازگار نظر آتے ہیں۔",
+        ne: "छानिएको समयका लागि उपलब्ध प्रत्यक्ष समुद्री तथ्याङ्कका आधारमा अवस्था तुलनात्मक रूपमा अनुकूल देखिन्छ।",
+        sd: "چونڊيل وقت لاءِ موجود لائيو سامونڊي ڊيٽا جي بنياد تي حالتون نسبتاً سازگار نظر اچن ٿيون۔"
+      },
+      "conditions require caution for the selected hour. review the live wind, wave, rain and current values before departure.": {
+        hi: "चयनित समय के लिए सावधानी आवश्यक है। प्रस्थान से पहले लाइव हवा, लहर, बारिश और समुद्री धारा के मान देखें।",
+        or: "ଚୟନିତ ସମୟ ପାଇଁ ସତର୍କତା ଆବଶ୍ୟକ। ଯିବା ପୂର୍ବରୁ ଲାଇଭ୍ ପବନ, ତରଙ୍ଗ, ବର୍ଷା ଏବଂ ସ୍ରୋତ ତଥ୍ୟ ଯାଞ୍ଚ କରନ୍ତୁ।",
+        bn: "নির্বাচিত সময়ে সতর্কতা প্রয়োজন। রওনা হওয়ার আগে লাইভ বাতাস, ঢেউ, বৃষ্টি ও স্রোতের তথ্য দেখুন।",
+        gu: "પસંદ કરેલા સમય માટે સાવચેતી જરૂરી છે. રવાના થવા પહેલાં લાઇવ પવન, મોજાં, વરસાદ અને પ્રવાહના ડેટા તપાસો.",
+        mr: "निवडलेल्या वेळेसाठी सावधगिरी आवश्यक आहे. निघण्यापूर्वी थेट वारा, लाटा, पाऊस आणि प्रवाहाचे डेटा तपासा.",
+        pa: "ਚੁਣੇ ਗਏ ਸਮੇਂ ਲਈ ਸਾਵਧਾਨੀ ਲਾਜ਼ਮੀ ਹੈ। ਰਵਾਨਗੀ ਤੋਂ ਪਹਿਲਾਂ ਲਾਈਵ ਹਵਾ, ਲਹਿਰਾਂ, ਮੀਂਹ ਅਤੇ ਧਾਰਾ ਦੇ ਅੰਕੜੇ ਵੇਖੋ।",
+        ta: "தேர்ந்தெடுக்கப்பட்ட நேரத்தில் எச்சரிக்கை தேவை. புறப்படும் முன் நேரடி காற்று, அலை, மழை மற்றும் நீரோட்டத் தரவை சரிபார்க்கவும்.",
+        te: "ఎంచుకున్న సమయానికి జాగ్రత్త అవసరం. బయలుదేరే ముందు ప్రత్యక్ష గాలి, అలలు, వర్షం మరియు ప్రవాహ డేటాను పరిశీలించండి.",
+        kn: "ಆಯ್ಕೆ ಮಾಡಿದ ಸಮಯದಲ್ಲಿ ಎಚ್ಚರಿಕೆ ಅಗತ್ಯ. ಹೊರಡುವ ಮೊದಲು ನೇರ ಗಾಳಿ, ಅಲೆ, ಮಳೆ ಮತ್ತು ಪ್ರವಾಹದ ಮಾಹಿತಿಯನ್ನು ಪರಿಶೀಲಿಸಿ.",
+        ml: "തിരഞ്ഞെടുത്ത സമയത്ത് ജാഗ്രത ആവശ്യമാണ്. പുറപ്പെടുന്നതിന് മുമ്പ് തത്സമയ കാറ്റ്, തിരമാല, മഴ, ഒഴുക്ക് ഡാറ്റ പരിശോധിക്കുക.",
+        ur: "منتخب وقت کے لیے احتیاط ضروری ہے۔ روانگی سے پہلے لائیو ہوا، لہروں، بارش اور سمندری دھارے کے اعداد و شمار دیکھیں۔"
+      },
+      "conditions show elevated marine stress for the selected hour. consider delaying departure and review the evidence.": {
+        hi: "चयनित समय में समुद्री जोखिम बढ़ा हुआ है। प्रस्थान टालने और उपलब्ध साक्ष्य की समीक्षा करने पर विचार करें।",
+        or: "ଚୟନିତ ସମୟରେ ସାମୁଦ୍ରିକ ଚାପ ବଢ଼ିଛି। ଯାତ୍ରା ବିଳମ୍ବ କରିବା ଏବଂ ପ୍ରମାଣ ଯାଞ୍ଚ କରିବା ବିଚାର କରନ୍ତୁ।",
+        bn: "নির্বাচিত সময়ে সামুদ্রিক ঝুঁকি বেড়েছে। যাত্রা বিলম্বিত করা এবং প্রমাণ পর্যালোচনা করার কথা বিবেচনা করুন।",
+        gu: "પસંદ કરેલા સમય માટે દરિયાઈ જોખમ વધારે છે. પ્રસ્થાન મુલતવી રાખવા અને પુરાવા તપાસવા પર વિચાર કરો.",
+        mr: "निवडलेल्या वेळेत सागरी जोखीम वाढलेली आहे. प्रस्थान पुढे ढकलण्याचा आणि पुराव्याचा आढावा घेण्याचा विचार करा.",
+        pa: "ਚੁਣੇ ਗਏ ਸਮੇਂ ਲਈ ਸਮੁੰਦਰੀ ਜੋਖਮ ਵਧਿਆ ਹੋਇਆ ਹੈ। ਰਵਾਨਗੀ ਦੇਰੀ ਨਾਲ ਕਰਨ ਅਤੇ ਸਬੂਤ ਦੀ ਸਮੀਖਿਆ ਕਰਨ ਬਾਰੇ ਸੋਚੋ.",
+        ta: "தேர்ந்தெடுக்கப்பட்ட நேரத்தில் கடல் அழுத்தம் அதிகமாக உள்ளது. புறப்பாட்டை தாமதப்படுத்தி ஆதாரங்களை மதிப்பாய்வு செய்யவும்.",
+        te: "ఎంచుకున్న సమయానికి సముద్ర ఒత్తిడి ఎక్కువగా ఉంది. బయలుదేరడాన్ని ఆలస్యం చేసి ఆధారాలను పరిశీలించండి.",
+        kn: "ಆಯ್ಕೆ ಮಾಡಿದ ಸಮಯದಲ್ಲಿ ಸಮುದ್ರದ ಒತ್ತಡ ಹೆಚ್ಚಾಗಿದೆ. ಹೊರಡುವುದನ್ನು ವಿಳಂಬಿಸಿ ಸಾಕ್ಷ್ಯವನ್ನು ಪರಿಶೀಲಿಸುವುದನ್ನು ಪರಿಗಣಿಸಿ.",
+        ml: "തിരഞ്ഞെടുത്ത സമയത്ത് സമുദ്ര സമ്മർദ്ദം ഉയർന്നതാണ്. പുറപ്പെടൽ വൈകിപ്പിച്ച് തെളിവുകൾ പരിശോധിക്കുന്നത് പരിഗണിക്കുക.",
+        ur: "منتخب وقت میں سمندری دباؤ زیادہ ہے۔ روانگی میں تاخیر کرنے اور شواہد کا جائزہ لینے پر غور کریں۔"
+      },
+      "conditions show severe marine stress for the selected hour. seek official warnings before departure.": {
+        hi: "चयनित समय में समुद्री जोखिम गंभीर है। प्रस्थान से पहले आधिकारिक चेतावनियाँ देखें।",
+        or: "ଚୟନିତ ସମୟରେ ସାମୁଦ୍ରିକ ଝୁମ୍ପ ଗୁରୁତର। ଯିବା ପୂର୍ବରୁ ସରକାରୀ ସତର୍କତା ଯାଞ୍ଚ କରନ୍ତୁ।",
+        bn: "নির্বাচিত সময়ে সামুদ্রিক ঝুঁকি গুরুতর। রওনা হওয়ার আগে সরকারি সতর্কতা দেখুন।",
+        gu: "પસંદ કરેલા સમય માટે દરિયાઈ જોખમ ગંભીર છે. રવાના થવા પહેલાં સત્તાવાર ચેતવણીઓ તપાસો.",
+        mr: "निवडलेल्या वेळेत सागरी जोखीम गंभीर आहे. निघण्यापूर्वी अधिकृत इशारे तपासा.",
+        pa: "ਚੁਣੇ ਗਏ ਸਮੇਂ ਲਈ ਸਮੁੰਦਰੀ ਜੋਖਮ ਗੰਭੀਰ ਹੈ। ਰਵਾਨਗੀ ਤੋਂ ਪਹਿਲਾਂ ਅਧਿਕਾਰਤ ਚੇਤਾਵਨੀਆਂ ਵੇਖੋ.",
+        ta: "தேர்ந்தெடுக்கப்பட்ட நேரத்தில் கடல் ஆபத்து கடுமையாக உள்ளது. புறப்படும் முன் அதிகாரப்பூர்வ எச்சரிக்கைகளைப் பார்க்கவும்.",
+        te: "ఎంచుకున్న సమయానికి సముద్ర ప్రమాదం తీవ్రంగా ఉంది. బయలుదేరే ముందు అధికారిక హెచ్చరికలను పరిశీలించండి.",
+        kn: "ಆಯ್ಕೆ ಮಾಡಿದ ಸಮಯದಲ್ಲಿ ಸಮುದ್ರದ ಅಪಾಯ ತೀವ್ರವಾಗಿದೆ. ಹೊರಡುವ ಮೊದಲು ಅಧಿಕೃತ ಎಚ್ಚರಿಕೆಗಳನ್ನು ಪರಿಶೀಲಿಸಿ.",
+        ml: "തിരഞ്ഞെടുത്ത സമയത്ത് സമുദ്ര അപകടസാധ്യത ഗുരുതരമാണ്. പുറപ്പെടുന്നതിന് മുമ്പ് ഔദ്യോഗിക മുന്നറിയിപ്പുകൾ പരിശോധിക്കുക.",
+        ur: "منتخب وقت میں سمندری خطرہ سنگین ہے۔ روانگی سے پہلے سرکاری انتباہات دیکھیں۔"
+      }
+    };
+    return translations[key]?.[language] || text;
+  }
+
+  function speakOrca() {
+    if (!("speechSynthesis" in window)) { setError("Voice output is not supported by this browser."); return; }
+    const original = displayValue(result?.recommendation ?? result?.orca_recommendation?.recommendation, "No recommendation available.");
+    const text = localizedSpeechText(original);
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const locale = languageInfo?.speechCode || "en-IN";
+    const voices = window.speechSynthesis.getVoices();
+    const exactVoice = voices.find(v => v.lang.toLowerCase() === locale.toLowerCase());
+    const baseVoice = voices.find(v => v.lang.toLowerCase().startsWith(locale.split("-")[0].toLowerCase()));
+    if (exactVoice || baseVoice) utterance.voice = exactVoice || baseVoice || null;
+    utterance.lang = locale;
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  async function runAnalysis(nextTime = time) {
+    if (!roleId) return;
+    if (!question.trim()) { setError("Please enter a question first."); return; }
+    if (vesselRequired && (destination.latitude == null || destination.longitude == null)) { setError("Choose the offshore / operating destination before asking ORCA."); return; }
+    setError(""); setScreen("loading");
+    try {
+      const response = await analyzeOrca({
+        question,
+        locationName: vesselRequired ? destination.name : location,
+        date,
+        time: nextTime,
+        latitude: vesselRequired ? Number(destination.latitude) : coords.latitude,
+        longitude: vesselRequired ? Number(destination.longitude) : coords.longitude,
+        stakeholder: effectiveRole,
+        verified,
+        language,
+        vessel: {
+          vesselType: vessel.type,
+          boatSize: vessel.size === "small" ? 1 : vessel.size === "medium" ? 2 : 3,
+          fuelCapacity: vessel.fuelCapacity,
+          currentFuel: vessel.currentFuel,
+          consumption: vessel.consumption,
+          cruisingSpeed: vessel.speed,
+          reserve: vessel.reserve,
+        },
+      });
+      setResult(response);
+      const historyItem: HistoryItem = {
+        id: `${Date.now()}-${nextTime}`, question: question.trim(), location, date, time: nextTime,
+        role: effectiveRole, decision: displayDecision(response?.final_decision ?? response?.decision ?? response?.orca_recommendation?.decision),
+        risk: Number.isFinite(Number(response?.risk_score)) ? (Number(response.risk_score) <= 12 ? Math.round(Number(response.risk_score) / 12 * 100) : Math.round(Math.min(100, Number(response.risk_score)))) : null
+      };
+      setHistory(prev => { const next = [historyItem, ...prev.filter(h => h.question !== historyItem.question || h.date !== historyItem.date || h.time !== historyItem.time)].slice(0, 20); localStorage.setItem("orca-query-history", JSON.stringify(next)); return next; });
+      setTime(nextTime);
+      setWhatIfResult(null);
+      setRouteAnalysis(null);
+      setActiveView("dashboard");
+      setScreen("dashboard");
+    } catch (e: any) {
+      setError(e?.message || "ORCA could not complete the analysis.");
+      setScreen("ask");
+    }
+  }
+
+  async function runWhatIf(nextTime: string) {
+    setWhatIfLoading(true); setError("");
+    try {
+      const response = await getWhatIf({
+        date, time: nextTime, latitude: coords.latitude, longitude: coords.longitude
+      });
+      setWhatIfResult(response as any);
+    } catch (e: any) { setError(e?.message || "What-if analysis failed."); }
+    finally { setWhatIfLoading(false); }
+  }
+
+  function selectDestination(p: typeof COASTAL_PRESETS[number]) {
+    setDestination({ name: p.name, latitude: p.latitude, longitude: p.longitude });
+    setError("");
+  }
+
+  function selectAssessmentLocation(p: typeof COASTAL_PRESETS[number]) {
+    setLocation(p.name); setCoords({ latitude: p.latitude, longitude: p.longitude }); setLocationSource("preset"); setError("");
+  }
+
+  function goBack() {
+    if (screen === "ask") setScreen(vesselRequired ? "vessel" : "roles");
+    else if (screen === "vessel") setScreen(role?.id === "fisherman" ? "verify" : "roles");
+    else if (screen === "verify") setScreen("roles");
+    else if (screen === "dashboard") setActiveView("ask");
+  }
+
+  function nav(view: View) { setActiveView(view); setMobileNavOpen(false); }
+
+  if (!enteredOrca || screen === "welcome") return (
+    <div className="fullscreen intro-screen welcome-language-screen" style={{ position: "fixed", inset: 0, zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", background: "#06111f", color: "#eef8ff", overflow: "auto" }}>
+      <div className="orb orb-a" /><div className="orb orb-b" />
+      <div className="intro-inner welcome-card" style={{ position: "relative", zIndex: 2, width: "min(760px, 92vw)", padding: "48px", borderRadius: "28px", background: "rgba(10,28,47,.96)", border: "1px solid rgba(71,211,255,.28)", boxShadow: "0 30px 100px rgba(0,0,0,.45)" }}>
+        <div className="brand-mark">◉</div>
+        <div className="eyebrow">ORCA • MARINE ECOSYSTEM INTELLIGENCE</div>
+        <h1>Ask the Ocean.<br /><span>Understand the Risk.</span></h1>
+        <p>Choose your language first. ORCA will use it for the interface and voice features throughout your session.</p>
+        <div className="welcome-language">
+          <label><span>CHOOSE YOUR LANGUAGE</span>
+            <select value={language} onChange={e => saveLanguage(e.target.value as LanguageCode)}>
+              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native} · {l.name}</option>)}
+            </select>
+          </label>
+          <small>Voice availability depends on the voices supported by your browser for the selected language.</small>
+        </div>
+        <div className="intro-points"><span>✓ Weather + ocean evidence</span><span>✓ Satellite / PFZ</span><span>✓ GIS + deterministic risk</span></div>
+        <button className="primary-btn big" onClick={() => { setEnteredOrca(true); setScreen("roles"); }}>{L("enterOrca")} <span>→</span></button>
+        <small>Decision support prototype • Not an official navigation or safety system</small>
+      </div>
+    </div>
+  );
+
+  if (screen === "roles") return (
+    <div className="fullscreen setup-screen">
+      <SetupHeader step="01" title="Choose your role" onBack={() => setScreen("welcome")} />
+      <div className="setup-content">
+        <div className="eyebrow">MULTI-STAKEHOLDER PLATFORM</div>
+        <h1>How will you use <span>ORCA?</span></h1>
+        <p className="muted">The same marine evidence is adapted to the decision you need to make.</p>
+        <div className="role-grid-new">{ROLES.map(r => (
+          <button className="role-card-new" key={r.id} onClick={() => resetForRole(r)}>
+            <span className="role-icon-new">{r.icon}</span><span><strong>{r.title}</strong><small>{r.description}</small></span><b>→</b>
+          </button>
+        ))}</div>
+      </div>
+    </div>
+  );
+
+  if (screen === "verify") return (
+    <div className="fullscreen setup-screen">
+      <SetupHeader step="02" title="Fisherman access" onBack={goBack} />
+      <div className="center-card narrow">
+        <div className="step-icon">🛡️</div>
+        <div className="eyebrow">FISHER ACCESS</div>
+        <h1>Choose your access level</h1>
+        <p className="muted">ORCA keeps public marine information available to everyone. Extended fisherman features require an authorization check.</p>
+        <div className="choice-row">
+          <button className="choice-card" onClick={() => { setVerified(false); setVerificationError(""); setScreen("ask"); }}>
+            <b>Continue as public fisherman</b>
+            <small>Live weather, ocean, marine risk, map and public evidence</small>
+          </button>
+          <div className="choice-card">
+            <b>Demo verified fisherman</b>
+            <small>For SIH workflow demonstration only — not government verified</small>
+            <input
+              className="setup-input"
+              value={verificationId}
+              onChange={e => { setVerificationId(e.target.value); setVerificationError(""); }}
+              placeholder="Enter DEMO-FISH-001"
+              autoComplete="off"
+            />
+            <button className="primary-btn" onClick={verifyFisherman}>VERIFY DEMO ACCOUNT →</button>
+          </div>
+        </div>
+        {verificationError && <div className="error-box">{verificationError}</div>}
+        <button className="text-btn" onClick={goBack}>← Back</button>
+      </div>
+    </div>
+  );
+
+
+  if (screen === "vessel") return (
+    <div className="fullscreen setup-screen">
+      <SetupHeader step="03" title="Vessel profile" onBack={goBack} />
+      <div className="setup-content vessel-setup">
+        <div className="eyebrow">VESSEL CONTEXT</div>
+        <h1>Tell ORCA about your <span>vessel.</span></h1>
+        <p className="muted">This is used for range and operating estimates. It does not replace a professional vessel assessment.</p>
+        <div className="form-grid">
+          <Field label="Vessel / boat type"><input value={vessel.type} onChange={e => setVessel({ ...vessel, type: e.target.value })} /></Field>
+          <Field label="Boat size"><select value={vessel.size} onChange={e => setVessel({ ...vessel, size: e.target.value as Vessel["size"] })}><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option></select></Field>
+          <Field label="Fuel capacity (L)"><input type="number" min="1" value={vessel.fuelCapacity} onChange={e => setVessel({ ...vessel, fuelCapacity: Number(e.target.value) })} /></Field>
+          <Field label="Current fuel (L)"><input type="number" min="0" max={vessel.fuelCapacity} value={vessel.currentFuel} onChange={e => setVessel({ ...vessel, currentFuel: Number(e.target.value) })} /></Field>
+          <Field label="Consumption (L/hour)"><input type="number" min="0.1" value={vessel.consumption} onChange={e => setVessel({ ...vessel, consumption: Number(e.target.value) })} /></Field>
+          <Field label="Cruising speed (km/h)"><input type="number" min="1" value={vessel.speed} onChange={e => setVessel({ ...vessel, speed: Number(e.target.value) })} /></Field>
+          <Field label="Fuel reserve (%)"><input type="number" min="0" max="80" value={vessel.reserve} onChange={e => setVessel({ ...vessel, reserve: Number(e.target.value) })} /></Field>
+          {vesselRequired && <div className="departure-block"><div className="departure-head"><div><span className="eyebrow">DEPARTURE POINT</span><b>Where will the vessel leave from?</b><small>{departure.name}</small></div><button type="button" className="location-btn" onClick={useCurrentDepartureLocation} disabled={departureLoading}>{departureLoading ? "LOCATING…" : "USE MY CURRENT LOCATION"}</button></div><div className="coord-grid"><Field label="Departure place / address"><input value={departure.name} onChange={e => setDeparture({ ...departure, name: e.target.value })} /></Field><Field label="Latitude"><input type="number" step="0.0001" value={departure.latitude} onChange={e => setDeparture({ ...departure, latitude: Number(e.target.value) })} /></Field><Field label="Longitude"><input type="number" step="0.0001" value={departure.longitude} onChange={e => setDeparture({ ...departure, longitude: Number(e.target.value) })} /></Field></div><p className="muted tiny">ORCA uses this point as the vessel's departure reference. It is separate from the offshore destination you choose next.</p></div>}
+        </div>
+        <div className="range-preview"><div><span>Usable fuel</span><strong>{usableFuel.toFixed(1)} L</strong></div><div><span>Endurance</span><strong>{endurance.toFixed(1)} h</strong></div><div><span>Estimated one-way range</span><strong>{oneWayRange.toFixed(1)} km</strong></div></div><div className="route-purpose"><b>Why ORCA asks for fuel + speed</b><span>After you choose the fishing/assessment target, ORCA compares the trip distance, travel time and fuel required against your usable fuel, then checks live weather and ocean conditions along alternative planning corridors.</span></div>
+        <div className="setup-actions"><button className="text-btn" onClick={goBack}>← Back</button><button className="primary-btn" onClick={() => setScreen("ask")}>NEXT: ASK ORCA →</button></div>
+      </div>
+    </div>
+  );
+
+  if (screen === "ask") return (
+    <div className="fullscreen setup-screen">
+      <SetupHeader step={vesselRequired ? "04" : "03"} title="Ask ORCA" onBack={goBack} />
+      <div className="setup-content ask-setup">
+        <div className="eyebrow">{roleInfo.action.toUpperCase()}</div>
+        <h1>What do you want to <span>know?</span></h1>
+        <p className="muted">Ask naturally. ORCA will collect the evidence it can verify for the selected place and time.</p>
+        <div className="question-box"><textarea value={question} onChange={e => setQuestion(e.target.value)} placeholder={suggestionFor(roleId)} /><button className={listening ? "voice-btn active" : "voice-btn"} onClick={startVoice}>{listening ? "■" : "🎙"}</button></div>
+        <div className="suggestions">{suggestionsFor(roleId).map(s => <button key={s} onClick={() => setQuestion(s)}>{s}</button>)}</div>
+        {vesselRequired ? <div className="location-panel destination-panel">
+          <div className="panel-title"><span>🎯 WHERE DO YOU WANT TO GO?</span><div className="location-actions"><small>{destination.latitude != null ? "Offshore destination selected" : "Choose the offshore / operating target"}</small></div></div>
+          <p className="muted tiny">Your departure point is already set from your current location. Now choose the marine destination you want ORCA to assess.</p>
+          <div className="preset-row">{COASTAL_PRESETS.map(p => <button key={p.name} className={destination.name === p.name ? "preset active" : "preset"} onClick={() => selectDestination(p)}>{p.name}</button>)}</div>
+          <div className="coord-grid"><Field label="Destination name"><input value={destination.name} placeholder="e.g. Paradip Offshore" onChange={e => setDestination({ ...destination, name: e.target.value })} /></Field><Field label="Destination latitude"><input type="number" step="0.0001" value={destination.latitude ?? ""} onChange={e => setDestination({ ...destination, latitude: e.target.value === "" ? null : Number(e.target.value) })} /></Field><Field label="Destination longitude"><input type="number" step="0.0001" value={destination.longitude ?? ""} onChange={e => setDestination({ ...destination, longitude: e.target.value === "" ? null : Number(e.target.value) })} /></Field></div>
+        </div> : <div className="location-panel">
+          <div className="panel-title"><span>📍 CURRENT LOCATION</span><div className="location-actions"><small>{locationSource === "gps" ? location : "Detecting your current location…"}</small><button type="button" className="location-btn" onClick={useCurrentLocation} disabled={locationLoading}>{locationLoading ? "LOCATING…" : L("useCurrentLocation")}</button></div></div>
+          <div className="current-location-card"><b>{location}</b><small>ORCA will assess the marine/coastal conditions at your current location. No offshore preset is required for public access.</small></div>
+        </div>}
+        <div className="datetime-row"><Field label="Date"><input type="date" min={todayString()} value={date} onChange={e => setDate(e.target.value)} /></Field><Field label="Time"><input type="time" value={time} onChange={e => setTime(e.target.value)} /></Field></div>
+        {error && <div className="error-box">{error}</div>}
+        <div className="setup-actions"><button className="text-btn" onClick={goBack}>← Back</button><button className="primary-btn" onClick={() => runAnalysis()}>{L("analyze")} →</button></div>
+      </div>
+    </div>
+  );
+
+  if (screen === "loading") return <LoadingOrca role={roleInfo.title} />;
+
+  return (
+    <div className="app-shell">
+      <aside className={mobileNavOpen ? "sidebar mobile-open" : "sidebar"}>
+        <div className="side-brand"><div className="side-logo">◉</div><div><b>ORCA</b><small>MARINE INTELLIGENCE</small></div></div>
+        <div className="side-role"><span>{role?.icon}</span><div><b>{role?.title}</b><small>{verified ? "Verified access" : "Public access"}</small></div></div>
+        <nav>
+          <NavItem icon="⌂" label={L("dashboard")} active={activeView === "dashboard"} onClick={() => nav("dashboard")} />
+          <NavItem icon="✦" label={L("askOrca")} active={activeView === "ask"} onClick={() => { setError(""); setScreen("ask"); }} />
+          <NavItem icon="⌖" label={L("marineMap")} active={activeView === "map"} onClick={() => nav("map")} />
+          <NavItem icon="◈" label={L("evidence")} active={activeView === "evidence"} onClick={() => nav("evidence")} />
+          <NavItem icon="◷" label={L("history")} active={activeView === "history"} onClick={() => nav("history")} />
+          {(effectiveRole === "fisherman" || effectiveRole === "boat-operator" || effectiveRole === "authority") && <NavItem icon="⚠" label={L("alerts")} active={activeView === "alerts"} onClick={() => nav("alerts")} />}
+          {(effectiveRole === "fisherman" || effectiveRole === "boat-operator") && <NavItem icon="◇" label={L("whatIf")} active={activeView === "whatif"} onClick={() => nav("whatif")} />}
+          <NavItem icon="◎" label={L("profile")} active={activeView === "profile"} onClick={() => nav("profile")} />
+          <NavItem icon="文" label={L("language")} active={activeView === "language"} onClick={() => nav("language")} />
+        </nav>
+        <div className="side-bottom">
+          <label>{L("language").toUpperCase()}</label>
+          <select value={language} onChange={e => saveLanguage(e.target.value as LanguageCode)}>{LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native} · {l.name}</option>)}</select>
+          <button className="change-role" onClick={() => { setScreen("roles"); setResult(null); }}>↺ {L("changeStakeholder")}</button>
+          <small>LIVE SOURCES WHEN AVAILABLE<br />Open-Meteo Weather + Marine</small>
+        </div>
+      </aside>
+      {mobileNavOpen && <button className="nav-backdrop" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
+
+      <main className="main-shell">
+        <header className="topbar"><div><span className="status-live" /> {L("systemReady")}</div><div className="top-location">{location} · {date} · {prettyTime(time)}</div><button className="mobile-menu" onClick={() => setMobileNavOpen(v => !v)}>☰</button></header>
+        <div className="page-body">
+          {activeView === "dashboard" && <Dashboard />}
+          {activeView === "map" && <MapView />}
+          {activeView === "evidence" && <EvidenceView />}
+          {activeView === "alerts" && <AlertsView />}
+          {activeView === "whatif" && <WhatIfView />}
+          {activeView === "profile" && <ProfileView />}
+          {activeView === "language" && <LanguageView />}
+          {activeView === "history" && <HistoryView />}
+        </div>
+      </main>
+    </div>
+  );
+
+  function Dashboard() {
+    const tone = riskTone(riskLevel);
+    const decisionLabel = decision.replaceAll("_", " ");
+    function QuestionAnswerCard() {
+      const qa = result?.question_answer || {};
+      const intent = String(qa.intent || result?.query_understanding?.intent || "GENERAL");
+      const priorities = Array.isArray(qa.priority) ? qa.priority : [];
+      const direct = displayValue(qa.direct_answer, displayDecision(result?.recommendation));
+      const summary = displayValue(qa.answer_summary, "ORCA matched your question to the available evidence.");
+      return <section className="question-answer-card">
+        <div className="question-answer-head"><div><span className="section-label">ANSWER TO YOUR QUESTION</span><h2>{direct}</h2></div><span className="intent-badge">{intent.replaceAll("_", " ")}</span></div>
+        <p>{summary}</p>
+        <div className="question-answer-meta"><span>Question</span><b>{question || "General marine assessment"}</b></div>
+        {priorities.length > 0 && <div className="priority-row">{priorities.map((x: string) => <span key={x}>{x.replaceAll("_", " ")}</span>)}</div>}
+      </section>;
+    }
+
+    const shared = result ? (
+      <>
+        <QuestionAnswerCard />
+        <div className={`decision-hero ${tone}`}><div><span className="decision-kicker">ORCA DECISION</span><h2>{decisionLabel}</h2><p>{localizedSpeechText(displayValue(result?.recommendation ?? result?.orca_recommendation?.recommendation, "No recommendation available."))}</p><small>{location} · {date} {prettyTime(time)} · {marineAvailable ? "Marine data available" : "Marine data not confirmed"}</small><button className="listen-btn" onClick={speakOrca}>{speaking ? "■ Speaking…" : `🔊 ${L("listen")}`}</button></div><div className="risk-circle"><strong>{riskScore !== null ? riskScore : "—"}</strong><span>RISK / 100</span></div></div>
+        <div className="query-understanding">
+          <div><span className="section-label">ORCA UNDERSTOOD</span><strong>{displayValue(result?.query_understanding?.requested_information, "General marine conditions and evidence")}</strong></div>
+          <small>Your question is routed to the relevant marine evidence. Risk is calculated separately by the deterministic model.</small>
+        </div>
+        <div className="metric-grid">
+          <Metric icon="🌬" label="Wind" value={weather?.wind_speed != null ? `${weather.wind_speed} km/h` : "—"} sub={weather?.condition || "No valid weather data"} />
+          <Metric icon="🌊" label="Wave height" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub={ocean?.wave_period != null ? `Period ${ocean.wave_period}s` : "No valid wave data"} />
+          <Metric icon="🌀" label="Ocean current" value={ocean?.current_speed != null ? `${ocean.current_speed} m/s` : "—"} sub={ocean?.sst != null ? `Marine SST ${ocean.sst}°C` : "No current data"} />
+          <Metric icon="🌧" label="Rain" value={weather?.precipitation != null ? `${weather.precipitation} mm` : "—"} sub={weather?.weather_code != null ? `Weather code ${weather.weather_code}` : "Selected-hour data"} />
+          <Metric icon="🛰" label="Satellite SST" value={result?.satellite?.satellite_observations?.sst?.available ? `${result.satellite.satellite_observations.sst.value} °C` : "—"} sub={result?.satellite?.satellite_observations?.sst?.observation_time ? `Observed ${result.satellite.satellite_observations.sst.observation_time}` : "No recent satellite pixel"} />
+          {vesselRequired && <Metric icon="⛽" label="Range estimate" value={`${oneWayRange.toFixed(1)} km`} sub={`${endurance.toFixed(1)} h endurance`} />}
+        </div>
+        <section className="decision-explain">
+          <div className="section-title"><span>DECISION PATH</span><small>Deterministic assessment from available evidence</small></div>
+          <div className="decision-flow">
+            <FlowNode icon="🌦" title="Weather" status={weather?.status === "available" ? "LIVE" : "—"} />
+            <i>→</i><FlowNode icon="🌊" title="Ocean" status={ocean?.status === "available" ? "LIVE" : "—"} />
+            <i>→</i><FlowNode icon="🛰" title="Satellite / PFZ" status={result?.satellite?.satellite_observations?.status === "available" ? "LIVE" : result?.fishing_zone?.status || "—"} />
+            <i>→</i><FlowNode icon="🗺" title="GIS" status={result?.gis?.restriction_layer_connected ? "CHECKED" : "LIMITED"} />
+            <i>→</i><FlowNode icon="⚙" title="Risk Engine" status={riskScore !== null ? "CALCULATED" : "—"} />
+          </div>
+          <div className="decision-note"><b>ORCA is a decision-support prototype.</b><span>Risk is calculated from the evidence returned for the selected place and time. It is not an official maritime safety clearance.</span></div>
+        </section>
+        <section className="source-strip">
+          <div><span>WEATHER</span><b>{weather?.source || "Open-Meteo"}</b></div>
+          <div><span>OCEAN</span><b>{ocean?.source || "Open-Meteo Marine"}</b></div>
+          <div><span>SATELLITE</span><b>{result?.satellite?.satellite_observations?.source || "NOAA CoastWatch"}</b></div>
+          <div><span>PFZ</span><b>{result?.fishing_zone?.source || "INCOIS"}</b></div>
+        </section>
+      </>
+    ) : null;
+
+    function renderRoleWorkspace() {
+      if (!result) return null;
+      const rec = localizedSpeechText(displayValue(result?.recommendation ?? result?.orca_recommendation?.recommendation, "No recommendation available."));
+      const envSat = result?.satellite?.satellite_observations || result?.satellite_observations || {};
+      const chlor = envSat?.chlorophyll;
+      const satSst = envSat?.sst;
+      const guidance = roleId === "fisherman" && !verified
+        ? "Public marine guidance only. ORCA does not claim fisherman verification or expose protected/private fishing intelligence."
+        : roleId === "researcher"
+          ? "Observation-first view: measurements and provenance are shown before recommendations."
+          : roleId === "boat-operator"
+            ? "Operational view: route feasibility, travel conditions and vessel range are the priority."
+            : roleId === "traveler"
+              ? "Public coastal awareness view: weather, waves and general marine conditions."
+              : roleId === "environmentalist"
+                ? "Environmental view: satellite and ocean indicators are emphasized over fishing decisions."
+                : "Regional situational-awareness view: risk, spatial context, alerts and evidence are prioritized.";
+
+      if (roleId === "researcher") return <section className="role-output researcher-output">
+        <div className="role-output-hero"><div><span className="decision-kicker">RESEARCH OBSERVATION</span><h2>Marine observations around {location}</h2><p>{guidance}</p></div><div className="observation-badge">EVIDENCE FIRST</div></div>
+        <div className="metric-grid role-metric-grid"><Metric icon="🛰" label="Satellite SST" value={satSst?.available ? `${satSst.value} °C` : "—"} sub={satSst?.observation_time ? `Observed ${satSst.observation_time}` : "Recent pixel unavailable"}/><Metric icon="🟢" label="Chlorophyll" value={chlor?.available ? `${chlor.value}` : "—"} sub={chlor?.observation_time ? `Observed ${chlor.observation_time}` : "Recent pixel unavailable"}/><Metric icon="🌀" label="Ocean current" value={ocean?.current_speed != null ? `${ocean.current_speed} m/s` : "—"} sub="Open-Meteo Marine"/><Metric icon="🌊" label="Wave height" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub={ocean?.wave_period != null ? `Period ${ocean.wave_period}s` : "Period unavailable"}/></div>
+        <div className="role-callout"><b>Source provenance</b><span>Weather: {weather?.source || "—"} · Ocean: {ocean?.source || "—"} · Satellite: {satSst?.source || "—"} · PFZ: {result?.fishing_zone?.source || "—"}</span></div>
+      </section>;
+
+      if (roleId === "environmentalist") return <section className="role-output environment-output">
+        <div className="role-output-hero"><div><span className="decision-kicker">ENVIRONMENTAL OBSERVATION</span><h2>Ocean health signals</h2><p>{guidance}</p></div><div className="observation-badge">SATELLITE + OCEAN</div></div>
+        <div className="metric-grid role-metric-grid"><Metric icon="🌡" label="Sea surface temperature" value={satSst?.available ? `${satSst.value} °C` : ocean?.sst != null ? `${ocean.sst} °C` : "—"} sub="Satellite / marine observation"/><Metric icon="🟢" label="Chlorophyll" value={chlor?.available ? `${chlor.value}` : "—"} sub="Satellite observation when available"/><Metric icon="🌀" label="Current" value={ocean?.current_speed != null ? `${ocean.current_speed} m/s` : "—"} sub="Marine model"/><Metric icon="🌊" label="Wave state" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub={ocean?.wave_period != null ? `Period ${ocean.wave_period}s` : "—"}/></div>
+        <div className="role-callout"><b>Environmental evidence</b><span>{satSst?.observation_time || chlor?.observation_time ? "Recent satellite observations are shown with their observation time." : "No recent satellite pixel was available; ORCA does not invent environmental values."}</span></div>
+      </section>;
+
+      if (roleId === "traveler") return <section className="role-output traveler-output">
+        <div className={`role-output-hero ${tone}`}><div><span className="decision-kicker">COASTAL AWARENESS</span><h2>{decision.replaceAll("_", " ")}</h2><p>{rec}</p><small>{guidance}</small></div><div className="risk-circle"><strong>{riskScore !== null ? riskScore : "—"}</strong><span>RISK / 100</span></div></div>
+        <div className="metric-grid role-metric-grid"><Metric icon="🌦" label="Weather" value={weather?.condition || "—"} sub={weather?.wind_speed != null ? `Wind ${weather.wind_speed} km/h` : "Wind unavailable"}/><Metric icon="🌊" label="Coastal waves" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub="Marine data when available"/><Metric icon="🌧" label="Rain" value={weather?.precipitation != null ? `${weather.precipitation} mm` : "—"} sub="Selected hour"/><Metric icon="⚠" label="Public risk" value={riskScore !== null ? `${riskScore}/100` : "—"} sub="Model estimate, not a clearance"/></div>
+      </section>;
+
+      if (roleId === "fisherman" && !verified) return <section className="role-output public-fisher-output">
+        <div className={`role-output-hero ${tone}`}><div><span className="decision-kicker">PUBLIC FISHERMAN · STANDARD ACCESS</span><h2>{decision.replaceAll("_", " ")}</h2><p>{rec}</p><small>{guidance}</small></div><div className="risk-circle"><strong>{riskScore !== null ? riskScore : "—"}</strong><span>RISK / 100</span></div></div>
+        <div className="metric-grid role-metric-grid"><Metric icon="🌬" label="Wind" value={weather?.wind_speed != null ? `${weather.wind_speed} km/h` : "—"} sub={weather?.condition || "Weather unavailable"}/><Metric icon="🌊" label="Wave height" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub="General marine condition"/><Metric icon="🌀" label="Current" value={ocean?.current_speed != null ? `${ocean.current_speed} m/s` : "—"} sub="General marine condition"/><Metric icon="⚠" label="Marine risk" value={riskScore !== null ? `${riskScore}/100` : "—"} sub={riskLevel}/></div>
+        <div className="access-note"><b>Public access limits</b><span>✓ General marine conditions · ✓ Basic safety information · ✓ Map · ✕ No verified fisherman status · ✕ No protected/private fishing information · ✕ No claim of registration verification</span></div>
+      </section>;
+
+      if (roleId === "boat-operator") return <section className="role-output boat-output">
+        <div className={`role-output-hero ${tone}`}><div><span className="decision-kicker">VESSEL OPERATIONS</span><h2>Route & operating assessment</h2><p>{guidance}</p><small>{rec}</small></div><div className="risk-circle"><strong>{riskScore !== null ? riskScore : "—"}</strong><span>RISK / 100</span></div></div>
+        <div className="metric-grid role-metric-grid"><Metric icon="⛽" label="One-way range" value={`${oneWayRange.toFixed(1)} km`} sub={`${endurance.toFixed(1)} h endurance`}/><Metric icon="🌊" label="Wave" value={ocean?.wave_height != null ? `${ocean.wave_height} m` : "—"} sub="Operating condition"/><Metric icon="🌀" label="Current" value={ocean?.current_speed != null ? `${ocean.current_speed} m/s` : "—"} sub="Operating condition"/><Metric icon="🌬" label="Wind" value={weather?.wind_speed != null ? `${weather.wind_speed} km/h` : "—"} sub="Operating condition"/></div>
+        <div className="role-callout"><b>Vessel feasibility</b><span>Open Marine Map to compare live-condition planning corridors and round-trip fuel feasibility. ORCA does not certify navigation safety.</span></div>
+      </section>;
+
+      if (roleId === "authority") return <section className="role-output authority-output">
+        <div className={`role-output-hero ${tone}`}><div><span className="decision-kicker">COASTAL AUTHORITY</span><h2>Regional situational awareness</h2><p>{guidance}</p><small>{rec}</small></div><div className="risk-circle"><strong>{riskScore !== null ? riskScore : "—"}</strong><span>RISK / 100</span></div></div>
+        <div className="authority-grid"><div><b>Risk area</b><strong>{riskScore !== null ? `${riskScore}/100` : "No data"}</strong><small>Selected region / hour</small></div><div><b>GIS restriction</b><strong>{restricted ? "HIT" : "NOT CLAIMED"}</strong><small>Authoritative layer required</small></div><div><b>Watcher</b><strong>{watcherOn ? "MONITORING" : "OFF"}</strong><small>Open Alerts for live status</small></div><div><b>Weather alert context</b><strong>{weather?.weather_code != null && Number(weather.weather_code) >= 95 ? "THUNDERSTORM" : "NO EVENT DETECTED"}</strong><small>Based on returned weather code</small></div></div>
+        <div className="role-callout"><b>Evidence-led monitoring</b><span>ORCA only claims hazards supported by connected data. Official tsunami/cyclone warnings and government restriction clearance remain unavailable until authoritative feeds are connected.</span></div>
+      </section>;
+
+      return <>{shared}</>;
+    }
+
+    const focus = {
+      fisherman: { kicker: "FISHING INTELLIGENCE", title: verified ? "Verified fisherman workspace" : "Public fisherman workspace", text: verified ? "Extended fishing decision-support using live marine, satellite/PFZ and vessel context." : "Useful public marine conditions without claiming fisherman identity verification.", cards: verified ? [["🎣","Fishing decision","Best/avoid windows and marine risk"],["🛰","PFZ & satellite","Official PFZ source and real satellite observations when available"],["⛽","Vessel readiness","Fuel, endurance and range estimates"]] : [["🌦","Marine conditions","Live weather, wind, waves and currents"],["⚠","Public risk","Deterministic marine risk from available observations"],["⌖","Marine map","Location and spatial context"]] },
+      researcher: { kicker: "RESEARCH INTELLIGENCE", title: "Observation workspace", text: "Focus on marine observations, satellite measurements and evidence provenance.", cards: [["🛰","Satellite observations","SST and chlorophyll when a valid recent pixel exists"],["🌀","Ocean observations","Currents, waves, period and marine SST"],["◈","Evidence","Source, observation time and availability"]] },
+      "boat-operator": { kicker: "VESSEL OPERATIONS", title: "Operating conditions workspace", text: "Focus on vessel range, route awareness and operating conditions.", cards: [["⛽","Vessel range","Fuel, endurance and estimated one-way range"],["🌊","Operating conditions","Wind, waves and currents"],["⚠","Operational risk","Time-specific marine risk from available data"]] },
+      traveler: { kicker: "COASTAL AWARENESS", title: "Public coastal workspace", text: "Simple coastal conditions and public marine awareness.", cards: [["🌦","Coastal weather","Current and forecast weather"],["🌊","Coastal waves","Wave conditions when available"],["⚠","Public awareness","Clear risk context without specialist fishing data"]] },
+      environmentalist: { kicker: "ENVIRONMENTAL INTELLIGENCE", title: "Marine environment workspace", text: "Focus on satellite and ocean indicators for environmental awareness.", cards: [["🛰","SST & chlorophyll","Real satellite observations when available"],["🌀","Currents","Marine current conditions"],["◈","Evidence","Traceable source information"]] },
+      authority: { kicker: "COASTAL AUTHORITY INTELLIGENCE", title: "Regional monitoring workspace", text: "Focus on risk, GIS context, monitoring and evidence.", cards: [["⚠","Risk areas","Marine risk based on available observations"],["🗺","Spatial context","GIS and mapped-zone information"],["✓","Watcher","Monitoring status and source readiness"]] }
+    }[roleId || "fisherman"];
+
+    return <div className="dashboard-view">
+      <div className="page-heading"><div><div className="eyebrow">{(focus?.kicker || roleInfo.title).toUpperCase()}</div><h1>{focus?.title || roleInfo.title}</h1><p>{focus?.text || roleInfo.subtitle}</p></div><button className="primary-btn" onClick={() => { setWhatIfResult(null); setError(""); setQuestion(""); setScreen("ask"); }}>＋ NEW QUERY</button></div>
+      {!result ? <div className="empty-dashboard"><div className="empty-icon">✦</div><h2>Ask ORCA to start an assessment</h2><p>{focus?.text || "Your next marine assessment will appear here."}</p><div className="role-focus-grid">{(focus?.cards || []).map(([icon,title,desc]) => <div className="role-focus-card" key={title}><span>{icon}</span><b>{title}</b><small>{desc}</small></div>)}</div><button className="primary-btn" onClick={() => { setQuestion(suggestionFor(roleId)); setScreen("ask"); }}>ASK ORCA →</button></div> : <>
+        {renderRoleWorkspace()}
+        <div className="role-focus-grid compact">{(focus?.cards || []).map(([icon,title,desc]) => <div className="role-focus-card" key={title}><span>{icon}</span><b>{title}</b><small>{desc}</small></div>)}</div>
+        {roleId === "fisherman" && verified && <FishingIntelligence />}
+        <div className="quick-grid"><button onClick={() => nav("evidence")}><span>◈</span><b>Evidence</b><small>{roleId === "researcher" ? "Source provenance and observations" : "See exactly what ORCA used"}</small></button><button onClick={() => nav("map")}><span>⌖</span><b>Marine map</b><small>{roleId === "authority" ? "Regional risk and spatial context" : roleId === "boat-operator" ? "Routes and operating conditions" : "Location and spatial context"}</small></button>{(vesselRequired) && <button onClick={() => nav("whatif")}><span>◇</span><b>What-if</b><small>Try another time or condition</small></button>}{(effectiveRole === "fisherman" || effectiveRole === "boat-operator" || effectiveRole === "authority") && <button onClick={() => nav("alerts")}><span>⚠</span><b>Alerts</b><small>{watcherOn ? "Monitoring active" : "Monitoring off"}</small></button>}</div>
+        <div className="trust-strip"><b>DATA QUALITY</b><span className={dataQuality === "live" ? "good" : "warn"}>{dataQuality.toUpperCase()}</span><span>Weather: {weather?.source || "—"}</span><span>Ocean: {ocean?.source || "—"}</span><span>PFZ: {result?.fishing_zone?.status || "not checked"}</span></div>
+      </>}
+    </div>;
+  }
+
+  function FishingIntelligence() {
+    if (fishingIntelLoading) return <section className="panel-section"><PanelHeader kicker="FISHING OPPORTUNITY INTELLIGENCE" title="Analysing live PFZ + satellite + marine evidence…" /><div className="loading-line">ORCA is checking operational PFZ evidence, satellite indicators and hourly sea conditions.</div></section>;
+    if (!fishingIntel) return null;
+    const current = fishingIntel.current || {};
+    const best = fishingIntel.hourly?.filter(r => r.score != null).sort((a,b) => Number(a.score) - Number(b.score))[0];
+    return <section className="panel-section fishing-intel-panel">
+      <PanelHeader kicker="FISHING OPPORTUNITY INTELLIGENCE" title="Where and when does the evidence look more promising?" />
+      <p className="muted">ORCA uses the operational PFZ signal when available, plus live satellite SST/chlorophyll and hourly marine conditions. It does <b>not</b> claim a fish count or guarantee a catch from satellite data alone.</p>
+      <div className="metric-grid role-metric-grid"><Metric icon="🟣" label="PFZ signal" value={current.pfz_available ? "AVAILABLE" : "NOT AVAILABLE"} sub="INCOIS operational advisory when returned"/><Metric icon="🌡" label="Satellite SST" value={current.sst != null ? `${current.sst} °C` : "—"} sub="Recent satellite observation"/><Metric icon="🟢" label="Chlorophyll" value={current.chlorophyll != null ? `${current.chlorophyll}` : "—"} sub="Recent satellite observation"/><Metric icon="⏱" label="Best marine window" value={best ? prettyTime(`${String(best.hour).padStart(2,"0")}:00`) : "—"} sub={best ? `Lowest live stress score: ${best.score}/100` : "No valid hourly window"}/></div>
+      <div className="fishing-signal-card"><div><b>🎯 Fishing-area evidence</b><small>{(fishingIntel as any).pfz_coordinate_available ? "An authoritative PFZ location was returned and can be plotted." : "No authoritative PFZ coordinate was returned by the current machine-readable connector. ORCA will not invent a fish hotspot."}</small></div><div><b>📅 Season / historical intelligence</b><small>{fishingIntel.seasonal?.message || "CMFRI historical fisheries source is connected; species/zone seasonality must come from the published series."}</small></div><div><b>🗺 Official PFZ WebGIS</b><small><a href="https://www.incois.gov.in/MarineFisheries/PfzWebGis" target="_blank" rel="noreferrer">Open INCOIS PFZ WebGIS</a></small></div></div>
+    </section>;
+  }
+
+  function MapView() {
+    const nearest = result?.fishing_zone?.nearest_pfz;
+    const pfz = nearest && Number.isFinite(Number(nearest.latitude)) && Number.isFinite(Number(nearest.longitude))
+      ? { latitude: Number(nearest.latitude), longitude: Number(nearest.longitude), label: nearest.name || nearest.label }
+      : null;
+    const routes = routeAnalysis?.routes || [];
+    const preferred = routeAnalysis?.preferred_route;
+    return <div className="panel-page">
+      <PanelHeader kicker="GIS / ROUTE INTELLIGENCE" title="Marine risk & route map" />
+      <p className="muted">ORCA checks the trip from your departure point to the selected target (or a real PFZ coordinate when one is returned). Route colours represent modelled live-condition risk; fuel checks show whether the trip fits your supplied usable fuel.</p>
+      <div className="map-wrap"><MarineMap latitude={routeTarget.latitude} longitude={routeTarget.longitude} locationName={routeTarget.label} risk={riskScore} isMarine={marineAvailable} rangeKm={vesselRequired ? oneWayRange : null} pfz={pfz} restricted={restricted} origin={vesselRequired ? departure : null} routes={routes} preferredRoute={preferred} /></div>
+      {vesselRequired && <div className="route-panel">
+        <div className="route-panel-head"><div><span className="eyebrow">ROUTE AGENT</span><h3>Can this vessel complete the trip?</h3><p>{routeLoading ? "Sampling live weather and marine conditions along alternative corridors…" : routeAnalysis?.message || "Live route analysis will appear here."}</p>{routeAnalysis?.agents?.length ? <small className="route-agents">Agents: {routeAnalysis.agents.join(" → ")}</small> : null}</div><div className="route-target"><span>DESTINATION</span><b>{routeTarget.label}</b><small>{routeTarget.latitude.toFixed(4)}, {routeTarget.longitude.toFixed(4)}</small></div></div>
+        <div className="route-options">{routes.map((r: any) => <div className={`route-option ${String(r.recommendation).toLowerCase()}`} key={r.name}><div><b>{r.name}</b><small>{r.recommendation === "PREFERRED" ? "ORCA preferred planning corridor" : r.recommendation.replaceAll("_", " ")}</small></div><div className="route-stat"><span>{r.distance_km?.toFixed?.(1) ?? "—"} km</span><small>distance</small></div><div className="route-stat"><span>{r.travel_time_hours?.toFixed?.(1) ?? "—"} h</span><small>travel</small></div><div className="route-stat"><span>{r.round_trip_fuel_needed_l?.toFixed?.(1) ?? "—"} L</span><small>round-trip fuel</small></div><div className="route-stat"><span>{r.round_trip_time_hours?.toFixed?.(1) ?? "—"} h</span><small>round-trip time</small></div><div className="route-stat"><span>{r.max_risk != null ? `${r.max_risk}/100` : "—"}</span><small>max risk</small></div><div className="route-badge">{r.fuel_feasible ? "FUEL OK" : "OUT OF RANGE"}</div></div>)}</div>
+        <div className="route-legend"><span><i className="route-dot low" />LOW</span><span><i className="route-dot moderate" />MODERATE</span><span><i className="route-dot high" />HIGH</span><span><i className="route-dot severe" />SEVERE</span><span><i className="route-dot unavailable" />DATA UNAVAILABLE</span></div>
+        {routeAnalysis?.unavailable_hazards?.length ? <div className="route-note"><b>Official-source limits:</b> {routeAnalysis.unavailable_hazards.join(", ")}.</div> : null}
+      </div>}
+      <div className="map-facts map-facts-extended">
+        <Metric icon="🚤" label="Departure" value={vesselRequired ? `${departure.latitude.toFixed(4)}, ${departure.longitude.toFixed(4)}` : "Not applicable"} sub={vesselRequired ? departure.name : "No vessel route requested"} />
+        <Metric icon="🎯" label="Target" value={`${routeTarget.latitude.toFixed(4)}, ${routeTarget.longitude.toFixed(4)}`} sub={routeTarget.label} />
+        <Metric icon="🎯" label="Fishing-area evidence" value={pfz ? "PFZ AVAILABLE" : "NO COORDINATE"} sub={pfz ? (pfz.label || "Authoritative PFZ location") : "Open official INCOIS PFZ WebGIS for current mapped advisory"} />
+        <Metric icon="⚠" label="Risk" value={riskScore != null ? `${riskScore}/100` : "—"} sub={riskLevel} />
+        <Metric icon="🛑" label="Restricted zone" value={restricted ? "HIT" : "NOT CLAIMED"} sub={restricted ? result?.restricted_zone?.zone || "Connected GIS reported a hit" : "No authoritative restriction hit is claimed"} />
+      </div>
+    </div>;
+  }
+
+  function EvidenceView() {
+    const sat = result?.satellite?.satellite_observations || result?.satellite_observations || result?.fishing_zone?.satellite_observations || {};
+    const pfz = result?.fishing_zone || result?.pfz || {};
+    const gis = result?.gis || {};
+    const riskAssessment = result?.marine_conditions?.risk_assessment || {};
+    const overallQuality = result?.marine_conditions?.data_quality?.overall || dataQuality;
+
+    const fmtTime = (value: unknown) => {
+      if (!value) return "Time unavailable";
+      const text = String(value);
+      return text.length >= 16 ? text.replace("T", " ").slice(0, 16) : text;
+    };
+    const availability = (status: unknown, fallback = "unavailable") => String(status || fallback).toLowerCase();
+    const statusClass = (status: string) => ["available", "clear", "low", "medium", "high"].includes(status) ? "ok" : "neutral";
+
+    const weatherTime = weather?.observation_time || weather?.timestamp || weather?.time;
+    const oceanTime = ocean?.observation_time || ocean?.timestamp || ocean?.time;
+    const sst = sat?.sst || {};
+    const chl = sat?.chlorophyll || {};
+    const satelliteStatus = availability(sat?.status, sat?.available ? "available" : "unavailable");
+    const pfzStatus = availability(pfz?.status, pfz?.available ? "available" : "unavailable");
+    const gisStatus = availability(gis?.status, restricted ? "restricted" : "available");
+    const riskStatus = availability(riskAssessment?.risk_level || result?.risk_level, "unavailable");
+
+    const rows = [
+      {
+        icon: "🌦", name: "Weather Agent", source: weather?.source || "Open-Meteo Weather",
+        status: availability(weather?.status, weather?.available ? "available" : "unavailable"),
+        time: fmtTime(weatherTime),
+        detail: `Wind ${weather?.wind_speed ?? "—"} ${weather?.wind_speed != null ? "km/h" : ""} · Rain ${weather?.precipitation ?? "—"} mm · ${displayValue(weather?.condition, "Condition unavailable")}`,
+      },
+      {
+        icon: "🌊", name: "Ocean Agent", source: ocean?.source || "Open-Meteo Marine",
+        status: availability(ocean?.status, ocean?.available ? "available" : "unavailable"),
+        time: fmtTime(oceanTime),
+        detail: `Wave ${ocean?.wave_height ?? "—"} m · Period ${ocean?.wave_period ?? "—"} s · Current ${ocean?.current_speed ?? "—"} m/s · SST ${ocean?.sst ?? "—"} °C`,
+      },
+      {
+        icon: "🛰", name: "Satellite SST", source: sst?.source || sat?.source || "NOAA CoastWatch",
+        status: availability(sst?.status, sst?.available ? "available" : satelliteStatus),
+        time: fmtTime(sst?.observation_time),
+        detail: sst?.value != null ? `${sst.value} ${sst.unit || "°C"} · Observation age ${sst.age_days ?? "—"} day(s)` : "No valid recent satellite pixel returned for this location.",
+      },
+      {
+        icon: "🟢", name: "Satellite Chlorophyll", source: chl?.source || sat?.source || "NOAA CoastWatch",
+        status: availability(chl?.status, chl?.available ? "available" : satelliteStatus),
+        time: fmtTime(chl?.observation_time),
+        detail: chl?.value != null ? `${chl.value} ${chl.unit || "mg/m³"} · Observation age ${chl.age_days ?? "—"} day(s)` : "No valid recent chlorophyll pixel returned for this location.",
+      },
+      {
+        icon: "🎣", name: "PFZ Advisory", source: pfz?.source || "INCOIS PFZ WebGIS / Advisory",
+        status: pfzStatus,
+        time: fmtTime(pfz?.observation_time || pfz?.timestamp),
+        detail: pfz?.available ? displayValue(pfz?.message || pfz?.status, "PFZ information available") : "No authoritative PFZ coordinate is claimed without a matching operational advisory.",
+      },
+      {
+        icon: "🗺", name: "GIS Agent", source: gis?.source || "Bhuvan / NRSC spatial context",
+        status: gisStatus,
+        time: fmtTime(gis?.observation_time || gis?.timestamp),
+        detail: restricted ? displayValue(result?.restricted_zone?.reason, "Restricted area detected") : "Official spatial-source status is shown; ORCA never invents a restriction polygon.",
+      },
+      {
+        icon: "⚙", name: "Deterministic Risk Engine", source: "ORCA model — derived from returned evidence",
+        status: riskStatus,
+        time: "Selected assessment time",
+        detail: `Risk ${riskScore ?? "—"}% · Level ${riskLevel} · Data quality ${overallQuality}`,
+      },
+    ];
+
+    return <div className="panel-page">
+      <PanelHeader kicker="TRACEABLE INTELLIGENCE" title="Evidence used by ORCA" />
+      <p className="muted">Every card separates the data source from ORCA's derived decision. Missing live observations stay unavailable — they are never replaced with demo numbers.</p>
+      <div className="evidence-chain"><span>Weather</span><b>→</b><span>Ocean</span><b>→</b><span>Satellite / PFZ</span><b>→</b><span>GIS</span><b>→</b><strong>Risk Engine</strong></div>
+      <div className="evidence-meta"><span>📍 {location}</span><span>🕐 {date} · {prettyTime(time)}</span><span>Data quality: <b>{overallQuality}</b></span></div>
+      <div className="evidence-list">{rows.map(i => <div className="evidence-row evidence-row-rich" key={i.name}>
+        <span className="evidence-icon">{i.icon}</span>
+        <div><b>{i.name}</b><small>{i.source}</small><p>{i.detail}</p><em>Observation / source time: {i.time}</em></div>
+        <span className={`source-status ${statusClass(i.status)}`}>{i.status}</span>
+      </div>)}</div>
+      <div className="evidence-footnote"><b>Important:</b> ORCA's risk percentage is a deterministic model output based on available marine conditions. It is not an official maritime safety clearance or government warning.</div>
+    </div>;
+  }
+
+  function AlertsView() {
+    const liveRisk = watcherData?.risk_score != null ? Number(watcherData.risk_score) : riskScore;
+    const watchStatus = watcherData?.watcher || (liveRisk == null ? "DATA NEEDED" : liveRisk > 70 ? "ALERT" : liveRisk > 50 ? "WATCH" : "SAFE");
+    const sourceReady = watcherData?.status === "available";
+    const alert = watchStatus === "ALERT";
+    return <div className="panel-page">
+      <PanelHeader kicker="ORCA MONITOR" title="Live trip monitoring + official alerts" />
+      <div className={`watcher-main ${alert ? "alert" : ""}`}>
+        <div><span className="watcher-dot" /><b>{watcherOn ? "Trip monitoring is ON" : "Trip monitoring is PAUSED"}</b>
+          <p>{watcherLoading ? "Checking the selected location and time against live weather and marine sources…" : watcherOn ? (watcherData?.message || "ORCA is checking the same evidence used by the assessment.") : "Monitoring is paused."}</p>
+        </div><div className="watch-status"><span>CURRENT STATUS</span><strong>{watcherOn ? watchStatus : "PAUSED"}</strong></div>
+      </div>
+      <div className="watch-grid">
+        <WatchItem ok={sourceReady && watcherData?.sources?.[0]?.available === true} text="Live weather source available" />
+        <WatchItem ok={sourceReady && watcherData?.sources?.[1]?.available === true} text="Live ocean source available" />
+        <WatchItem ok={sourceReady && watcherData?.risk_score != null} text="Current-hour risk calculated" />
+        <WatchItem ok={officialAlerts?.status === "available"} text="Official INCOIS / IMD alert sources connected" />
+      </div>
+      <section className="panel-section">
+        <PanelHeader kicker="OFFICIAL SOURCES" title="Government alert evidence" />
+        <p className="muted">ORCA reads official alert portals and reports their status. It never turns a reachable webpage into a fake warning.</p>
+        <div className="evidence-list">{(officialAlerts?.sources || []).map((a: any) => <div className="evidence-row evidence-row-rich" key={a.name}><span className="evidence-icon">⚠</span><div><b>{a.name}</b><small>{a.source_url || "Official source"}</small><p>{a.details || "Official source connected."}</p></div><span className={`source-status ${a.status === "clear" || a.status === "source_reachable" ? "ok" : "neutral"}`}>{String(a.status || "UNAVAILABLE").toUpperCase()}</span></div>)}</div>
+      </section>
+      <div className="watch-actions"><button className="secondary-btn" onClick={() => setWatcherOn(v => !v)}>{watcherOn ? "PAUSE MONITORING" : "TURN ON MONITORING"}</button><button className="secondary-btn" onClick={() => { setActiveView("whatif"); }}>WHAT-IF →</button></div>
+    </div>;
+  }
+
+  function WhatIfView() {
+    const rawRecommendation = whatIfResult?.recommendation ?? whatIfResult?.orca_recommendation?.recommendation;
+    const recommendation = displayValue(rawRecommendation, "");
+    const rawDecision = whatIfResult?.final_decision ?? whatIfResult?.decision ?? whatIfResult?.orca_recommendation?.decision;
+    const hasAnswer = Boolean(recommendation && !/no recommendation available|insufficient data|data unavailable/i.test(recommendation));
+    const baseDecision = hasAnswer ? displayDecision(rawDecision) : "available";
+    const rawRisk = whatIfResult?.risk_score ?? whatIfResult?.orca_recommendation?.marine_risk_score;
+    const wfRisk = rawRisk != null && Number.isFinite(Number(rawRisk)) ? Number(rawRisk) : null;
+    const weather = (whatIfResult?.weather || {}) as Record<string, any>;
+    const ocean = (whatIfResult?.ocean || {}) as Record<string, any>;
+    const factors = Array.isArray(whatIfResult?.factors) ? whatIfResult.factors : [];
+    return <div className="panel-page"><PanelHeader kicker="DIGITAL TWIN / WHAT-IF" title="Change the departure time" /><p className="muted">Each selection checks the exact requested hour using live Open-Meteo weather and marine forecast data. The percentage is a deterministic ORCA model estimate, not an official safety clearance.</p><div className="whatif-times">{["00:00","01:00","02:00","03:00","04:00","05:00","06:00","07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00","21:00","22:00","23:00"].map(t => <button key={t} disabled={whatIfLoading} className={time === t ? "selected" : ""} onClick={() => { setTime(t); runWhatIf(t); }}>{prettyTime(t)}</button>)}</div>{whatIfLoading && <div className="loading-line">Checking the exact selected hour…</div>}{whatIfResult && <><div className={`whatif-result ${hasAnswer ? riskTone(String(whatIfResult.risk_level || "")) : "safe"}`}><div><span>SELECTED HOUR · {prettyTime(time)}</span><strong>{baseDecision}</strong><p>{hasAnswer ? recommendation : "No recommendation available."}</p></div><div className="mini-risk">{hasAnswer && wfRisk !== null ? Math.round(wfRisk) : "—"}<small>MODEL RISK / 100</small></div></div><div className="whatif-data-grid"><div className="whatif-data-card"><span>WIND</span><strong>{weather.wind_speed ?? "—"}</strong><small>km/h · exact hour</small></div><div className="whatif-data-card"><span>WAVE HEIGHT</span><strong>{ocean.wave_height ?? "—"}</strong><small>m · exact hour</small></div><div className="whatif-data-card"><span>WAVE PERIOD</span><strong>{ocean.wave_period ?? "—"}</strong><small>s · exact hour</small></div><div className="whatif-data-card"><span>OCEAN CURRENT</span><strong>{ocean.ocean_current_velocity ?? "—"}</strong><small>km/h · exact hour</small></div><div className="whatif-data-card"><span>RAIN</span><strong>{weather.precipitation ?? "—"}</strong><small>mm · exact hour</small></div><div className="whatif-data-card"><span>SEA SURFACE TEMP.</span><strong>{ocean.sea_surface_temperature ?? "—"}</strong><small>°C · exact hour</small></div></div>{factors.length > 0 && <div className="whatif-factor-card"><b>Risk factors used</b><div>{factors.map((f: any) => <span key={f.name}>{f.name}: {f.value} {f.unit} · +{f.contribution}</span>)}</div></div>}{whatIfResult.message && <div className="source-note">{whatIfResult.message}</div>}</>}</div>; }
+
+  function HistoryView() {
+    return <div className="panel-page"><PanelHeader kicker="QUERY HISTORY" title="Your recent ORCA assessments" /><p className="muted">Saved locally in this browser. History contains your submitted questions and the results returned by ORCA; it does not create official records.</p>{history.length === 0 ? <div className="empty-dashboard"><div className="empty-icon">◷</div><h2>No assessments yet</h2><p>Your completed ORCA queries will appear here.</p><button className="primary-btn" onClick={() => { setScreen("ask"); setActiveView("dashboard"); }}>ASK ORCA →</button></div> : <div className="history-list">{history.map(item => <button className="history-row" key={item.id} onClick={() => { setQuestion(item.question); setLocation(item.location); setDate(item.date); setTime(item.time); setActiveView("dashboard"); }}><div><b>{item.question}</b><small>{item.location} · {item.date} · {prettyTime(item.time)}</small></div><span>{item.risk !== null ? `${item.risk}/100` : "—"}<small>{item.decision}</small></span></button>)}</div>}</div>; }
+
+  function ProfileView() {
+    return <div className="panel-page">
+      <PanelHeader kicker="PROFILE" title="Stakeholder & vessel profile" />
+      <div className="profile-grid">
+        <div className="profile-card profile-main"><span className="profile-icon">{role?.icon}</span><b>{role?.title || "Stakeholder"}</b><small>{verified ? "DEMO VERIFIED — NOT GOVERNMENT VERIFIED" : "Public / standard access"}</small><div className="profile-details"><span>Language <b>{languageInfo?.native || "English"}</b></span><span>Default location <b>{location}</b></span><span>Voice output <b>{"speechSynthesis" in window ? "Available" : "Unavailable"}</b></span></div></div>
+        {vesselRequired && <div className="profile-card"><span className="profile-icon">🚤</span><b>{vessel.type}</b><small>{vessel.size} vessel</small><div className="profile-details"><span>Fuel capacity <b>{vessel.fuelCapacity} L</b></span><span>Current fuel <b>{vessel.currentFuel} L</b></span><span>Consumption <b>{vessel.consumption} L/h</b></span><span>Cruising speed <b>{vessel.speed} km/h</b></span><span>Reserve <b>{vessel.reserve}%</b></span></div></div>}
+      </div>
+      {vesselRequired && <><div className="range-preview"><div><span>Usable fuel</span><strong>{usableFuel.toFixed(1)} L</strong></div><div><span>Endurance</span><strong>{endurance.toFixed(1)} h</strong></div><div><span>Estimated one-way range</span><strong>{oneWayRange.toFixed(1)} km</strong></div></div><div className="route-purpose"><b>Why ORCA asks for fuel + speed</b><span>After you choose the fishing/assessment target, ORCA compares the trip distance, travel time and fuel required against your usable fuel, then checks live weather and ocean conditions along alternative planning corridors.</span></div><p className="profile-disclaimer">Planning estimate only — not a certified vessel assessment.</p></>}
+      <div className="profile-actions">{vesselRequired && <button className="primary-btn" onClick={() => setScreen("vessel")}>EDIT VESSEL PROFILE</button>}<button className="secondary-btn" onClick={() => nav("language")}>CHANGE LANGUAGE</button></div>
+    </div>;
+  }
+
+  function LanguageView() {
+    return <div className="panel-page"><PanelHeader kicker="LANGUAGE" title="ORCA in your language" /><p className="muted">Choose the interface language. Voice input and voice output follow the selected language when your browser supports it.</p><div className="language-grid">{LANGUAGES.map(l => <button key={l.code} className={language === l.code ? "language-card active" : "language-card"} onClick={() => saveLanguage(l.code as LanguageCode)}><span>{l.native}</span><div><b>{l.name}</b><small>Interface and supported voice locale</small></div>{language === l.code && <strong>✓</strong>}</button>)}</div></div>;
+  }
+
+}
+
+function SetupHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) { return <header className="setup-header"><button className="text-btn" onClick={onBack}>← Back</button><div><span>STEP {step}</span><b>{title}</b></div><div className="setup-brand">ORCA ◉</div></header>; }
+function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
+function NavItem({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) { return <button className={active ? "nav-item active" : "nav-item"} onClick={onClick}><span>{icon}</span>{label}</button>; }
+function Metric({ icon, label, value, sub }: { icon: string; label: string; value: string; sub?: string }) { return <div className="metric-card"><span className="metric-icon">{icon}</span><div><span>{label}</span><strong>{value}</strong><small>{sub || ""}</small></div></div>; }
+function FlowNode({ icon, title, status }: { icon: string; title: string; status: string }) { return <div className="flow-node"><span>{icon}</span><b>{title}</b><small>{status}</small></div>; }
+function PanelHeader({ kicker, title }: { kicker: string; title: string }) { return <div className="panel-header"><div><div className="eyebrow">{kicker}</div><h1>{title}</h1></div></div>; }
+function WatchItem({ ok, text }: { ok: boolean; text: string }) { return <div className={ok ? "watch-ok" : "watch-review"}><span>{ok ? "✓" : "!"}</span><b>{text}</b></div>; }
+function LoadingOrca({ role }: { role: string }) { return <div className="fullscreen loading-screen"><div className="loader-orb">◉</div><div className="eyebrow">ORCA INTELLIGENCE</div><h1>Building your <span>{role.toLowerCase()}</span> assessment…</h1><div className="agent-steps"><span>✓ Weather</span><span>✓ Ocean</span><span>✓ Satellite / PFZ</span><span>✓ GIS</span><span>✓ Risk Engine</span></div><small>Using live sources when available. ORCA does not invent unavailable marine data.</small></div>; }
+function suggestionsFor(role: RoleId | null) {
+  if (role === "fisherman") return [
+    "Can I go fishing near Paradip tomorrow at 6 AM?",
+    "Where is the nearest PFZ?",
+    "What is the best fishing time tomorrow?",
+    "Which season is historically better for fishing here?",
+    "Can my boat reach that fishing area and return?",
+    "What are the marine conditions right now?",
+  ];
+  if (role === "researcher") return [
+    "What are the SST and current conditions?",
+    "Show the satellite evidence for this location.",
+    "How do the ocean conditions compare by time?",
+    "What marine observations are available?",
+    "What environmental change is visible here?",
+    "Show the provenance of the observations.",
+  ];
+  if (role === "boat-operator") return [
+    "Can my vessel complete this trip and return?",
+    "Which route corridor has lower operating risk?",
+    "What are the wave and wind conditions?",
+    "What time is better for this trip?",
+    "How much usable range does my boat have?",
+    "Are there official marine warnings?",
+  ];
+  if (role === "traveler") return [
+    "Is it safe to visit this coast today?",
+    "What will the sea conditions be when I visit?",
+    "Is tomorrow a good time for a coastal trip?",
+    "Will strong waves or rain affect my trip?",
+    "What time would be better for visiting?",
+    "Are there any current coastal hazards?",
+  ];
+  if (role === "environmentalist") return [
+    "What is the current SST here?",
+    "Where are the areas with higher chlorophyll?",
+    "How are ocean conditions changing?",
+    "Are there environmental anomalies here?",
+    "What satellite evidence is available?",
+    "How do current conditions compare with recent observations?",
+  ];
+  if (role === "authority") return [
+    "Which coastal areas are currently high risk?",
+    "Are there any authoritative restricted-zone concerns?",
+    "What conditions should be monitored today?",
+    "Which areas need attention based on current evidence?",
+    "Are official tsunami, cyclone or high-wave alerts active?",
+    "Show the evidence behind this risk assessment.",
+  ];
+  return ["What are the marine conditions?", "Is the weather safe?", "Are there any public marine warnings?"];
+}
+function suggestionFor(role: RoleId | null) { return suggestionsFor(role)[0]; }

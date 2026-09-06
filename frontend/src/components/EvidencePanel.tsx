@@ -1,200 +1,51 @@
-type VerificationData = {
-  verified?: boolean;
-  confidence?: number;
-};
-
 type EvidencePanelProps = {
-  verification?: VerificationData;
+  result?: any;
+  verified?: boolean;
 };
 
-function EvidencePanel({
-  verification,
-}: EvidencePanelProps) {
+function EvidencePanel({ result, verified = false }: EvidencePanelProps) {
+  const quality = result?.marine_conditions?.data_quality ?? result?.data_quality ?? {};
+  const weatherQuality = quality.weather || "unknown";
+  const oceanQuality = quality.ocean || "unknown";
+  const overall = quality.overall || result?.marine_conditions?.status || "unknown";
+  const pfzAvailable = result?.fishing_zone?.status === "available";
+  const gisAvailable = Boolean(result?.gis || result?.restricted_zone);
 
-  const verified =
-    verification?.verified ??
-    false;
+  const confidence = overall === "live" ? 90 : overall === "forecast" ? 85 : overall === "partial" ? 70 : overall === "fallback" ? 55 : 65;
 
-  const confidenceValue =
-    Number(
-      verification?.confidence ?? 0
-    );
-
-  /*
-    Backend may return:
-    0.87
-
-    or occasionally:
-    87
-
-    Normalize both.
-  */
-
-  const confidence =
-    confidenceValue <= 1
-      ? Math.round(
-          confidenceValue * 100
-        )
-      : Math.round(
-          confidenceValue
-        );
-
-  const safeConfidence =
-    Math.min(
-      100,
-      Math.max(
-        0,
-        confidence
-      )
-    );
-
-  const evidence = [
-    {
-      icon: "🌦️",
-      name: "Weather",
-      status: "Available",
-      source: "Weather data service",
-      time: "Recent",
-    },
-
-    {
-      icon: "🌊",
-      name: "Ocean",
-      status: "Available",
-      source: "Marine data service",
-      time: "Recent",
-    },
-
-    {
-      icon: "🛰️",
-      name: "Satellite / PFZ",
-      status: "Available",
-      source: "INCOIS / Satellite data",
-      time: "Recent",
-    },
-
-    {
-      icon: "🗺️",
-      name: "GIS",
-      status: "Available",
-      source: "Geospatial data",
-      time: "Recent",
-    },
+  const items = [
+    { icon: "🌦️", name: "Weather", status: weatherQuality.toUpperCase(), source: "Open-Meteo Weather API" },
+    { icon: "🌊", name: "Ocean", status: oceanQuality.toUpperCase(), source: "Open-Meteo Marine API" },
+    { icon: "🛰️", name: "Satellite / PFZ", status: pfzAvailable ? "AVAILABLE" : "UNAVAILABLE", source: pfzAvailable ? "Configured PFZ dataset" : "No PFZ dataset available in this demo" },
+    { icon: "🗺️", name: "GIS", status: gisAvailable ? "CHECKED" : "UNAVAILABLE", source: "ORCA spatial-zone analysis" },
   ];
 
   return (
     <div className="evidence-panel">
-
-      {/* VERIFICATION SUMMARY */}
-
       <div className="evidence-verification">
-
-        <div>
-
-          <strong>
-            Overall verification
-          </strong>
-
-          <span>
-            {verified
-              ? "✓ Verified"
-              : "⚠ Partial verification"}
-          </span>
-
-        </div>
-
-        <div>
-
-          <strong>
-            Confidence
-          </strong>
-
-          <span>
-            {safeConfidence}%
-          </span>
-
-        </div>
-
+        <div><strong>Evidence status</strong><span>{overall.toUpperCase()}</span></div>
+        <div><strong>User access</strong><span>{verified ? "✓ Verified fisherman" : "Public / role-based"}</span></div>
+        <div><strong>Prototype confidence</strong><span>{confidence}%</span></div>
       </div>
-
-      {/* CONFIDENCE */}
 
       <div className="evidence-confidence">
-
-        <div className="evidence-confidence-header">
-
-          <span>
-            Data confidence
-          </span>
-
-          <strong>
-            {safeConfidence}%
-          </strong>
-
-        </div>
-
-        <div className="evidence-confidence-bar">
-
-          <div
-            style={{
-              width:
-                `${safeConfidence}%`,
-            }}
-          />
-
-        </div>
-
+        <div className="evidence-confidence-header"><span>Data confidence indicator</span><strong>{confidence}%</strong></div>
+        <div className="evidence-confidence-bar"><div style={{ width: `${confidence}%` }} /></div>
+        <small>This is a prototype data-quality indicator, not a claim that the underlying sources are independently verified.</small>
       </div>
-
-      {/* SOURCES */}
 
       <div className="evidence-grid">
-
-        {evidence.map(
-          (item) => (
-
-            <div
-              className="evidence-card"
-              key={item.name}
-            >
-
-              <div className="evidence-icon">
-                {item.icon}
-              </div>
-
-              <div className="evidence-info">
-
-                <h3>
-                  {item.name}
-                </h3>
-
-                <div className="evidence-status">
-
-                  <span>
-                    ✓
-                  </span>
-
-                  {item.status}
-
-                </div>
-
-                <p>
-                  {item.source}
-                </p>
-
-                <small>
-                  Updated: {item.time}
-                </small>
-
-              </div>
-
+        {items.map((item) => (
+          <div className="evidence-card" key={item.name}>
+            <div className="evidence-icon">{item.icon}</div>
+            <div className="evidence-info">
+              <h3>{item.name}</h3>
+              <div className="evidence-status"><span>{item.status === "UNAVAILABLE" ? "–" : "✓"}</span>{item.status}</div>
+              <p>{item.source}</p>
             </div>
-
-          )
-        )}
-
+          </div>
+        ))}
       </div>
-
     </div>
   );
 }

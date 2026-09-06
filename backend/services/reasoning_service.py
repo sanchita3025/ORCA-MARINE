@@ -1,244 +1,288 @@
-def generate_marine_advice(summary, risk, weather, ocean):
+# backend/services/reasoning_service.py
 
-    # Check if risk assessment is unavailable
-    if risk.get("risk_level") == "Unknown":
+from __future__ import annotations
 
-        return {
-            "status": "insufficient_data",
-            "advice": (
-                "Unable to provide marine advice because "
-                "required weather or ocean data is unavailable."
-            )
-        }
+from typing import Any
 
-    risk_level = risk.get("risk_level")
-    risk_score = risk.get("risk_score")
 
-    wind_speed = weather.get("wind_speed")
-    precipitation = weather.get("precipitation")
-    condition = weather.get("condition")
+def _number(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
-    wave_height = ocean.get("wave_height")
-    wave_period = ocean.get("wave_period")
-    current_speed = ocean.get("current_speed")
 
-    explanations = []
+def _available(data: Any) -> bool:
+    if not isinstance(data, dict):
+        return False
 
-    # -----------------------------
-    # Wind explanation
-    # -----------------------------
+    status = str(data.get("status", "")).lower()
 
-    if wind_speed is not None:
+    return status in {
+        "available",
+        "success",
+        "ok",
+        "live",
+    }
 
-        if wind_speed < 10:
-            explanations.append(
-                f"Wind is relatively calm at {wind_speed} km/h."
-            )
 
-        elif wind_speed <= 20:
-            explanations.append(
-                f"Wind is moderate at {wind_speed} km/h."
-            )
+def _get(data: dict, *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
 
-        elif wind_speed <= 30:
-            explanations.append(
-                f"Strong wind of {wind_speed} km/h may affect "
-                "marine operations."
-            )
 
+def build_reasoning(
+    weather: dict | None = None,
+    ocean: dict | None = None,
+    satellite: dict | None = None,
+    gis: dict | None = None,
+    question: str = "",
+    role: str = "",
+) -> dict:
+    """
+    Build a transparent explanation from available agent outputs.
+
+    This service does not invent missing observations and does not generate
+    numerical risk scores. Numerical risk remains the responsibility of the
+    deterministic risk engine.
+    """
+
+    weather = weather or {}
+    ocean = ocean or {}
+    satellite = satellite or {}
+    gis = gis or {}
+
+    available_sources = []
+    unavailable_sources = []
+
+    source_status = {
+        "weather": _available(weather),
+        "ocean": _available(ocean),
+        "satellite": _available(satellite),
+        "gis": _available(gis),
+    }
+
+    for name, available in source_status.items():
+        if available:
+            available_sources.append(name)
         else:
-            explanations.append(
-                f"Very strong wind of {wind_speed} km/h "
-                "significantly increases marine risk."
-            )
+            unavailable_sources.append(name)
 
+    observations: dict[str, Any] = {}
 
-    # -----------------------------
-    # Wave explanation
-    # -----------------------------
+    wind = _get(weather, "wind_speed", "wind_speed_kmh")
+    precipitation = _get(weather, "precipitation", "precipitation_mm")
+    condition = _get(weather, "condition", "weather_condition")
 
-    if wave_height is not None:
+    wave_height = _get(ocean, "wave_height", "wave_height_m")
+    wave_period = _get(ocean, "wave_period", "wave_period_s")
+    current_speed = _get(ocean, "current_speed", "current_speed_ms")
+    sst = _get(ocean, "sst", "sea_surface_temperature")
 
-        if wave_height < 1:
-            explanations.append(
-                f"Wave height is low at {wave_height} m."
-            )
-
-        elif wave_height <= 2:
-            explanations.append(
-                f"Wave height is moderate at {wave_height} m."
-            )
-
-        elif wave_height <= 3:
-            explanations.append(
-                f"Wave height is high at {wave_height} m "
-                "and may affect small vessels."
-            )
-
-        else:
-            explanations.append(
-                f"Wave height is very high at {wave_height} m "
-                "and may create hazardous marine conditions."
-            )
-
-
-    # -----------------------------
-    # Ocean current explanation
-    # -----------------------------
-
-    if current_speed is not None:
-
-        if current_speed < 1:
-            explanations.append(
-                f"Ocean current is relatively calm at "
-                f"{current_speed} m/s."
-            )
-
-        elif current_speed <= 2:
-            explanations.append(
-                f"Ocean current is moderate at "
-                f"{current_speed} m/s."
-            )
-
-        else:
-            explanations.append(
-                f"Strong ocean current of {current_speed} m/s "
-                "may make navigation more difficult."
-            )
-
-
-    # -----------------------------
-    # Wave period explanation
-    # -----------------------------
-
-    if wave_period is not None:
-
-        if wave_period < 6:
-            explanations.append(
-                f"Short wave period ({wave_period} s) may "
-                "produce choppy sea conditions."
-            )
-
-        elif wave_period <= 10:
-            explanations.append(
-                f"Wave period is moderate at {wave_period} s."
-            )
-
-        else:
-            explanations.append(
-                f"Long wave period of {wave_period} s indicates "
-                "more widely spaced waves."
-            )
-
-
-    # -----------------------------
-    # Precipitation explanation
-    # -----------------------------
+    if wind is not None:
+        observations["wind_speed"] = wind
 
     if precipitation is not None:
+        observations["precipitation"] = precipitation
 
-        if precipitation == 0:
-            explanations.append(
-                "No significant precipitation is expected."
-            )
+    if condition is not None:
+        observations["condition"] = condition
 
-        elif precipitation <= 5:
-            explanations.append(
-                f"Light precipitation of {precipitation} mm "
-                "is present."
-            )
+    if wave_height is not None:
+        observations["wave_height"] = wave_height
 
+    if wave_period is not None:
+        observations["wave_period"] = wave_period
+
+    if current_speed is not None:
+        observations["current_speed"] = current_speed
+
+    if sst is not None:
+        observations["sst"] = sst
+
+    factors: list[str] = []
+
+    wind_value = _number(wind)
+    wave_value = _number(wave_height)
+    current_value = _number(current_speed)
+    precipitation_value = _number(precipitation)
+
+    if wind_value is not None:
+        if wind_value > 25:
+            factors.append("High wind conditions are present.")
+        elif wind_value > 15:
+            factors.append("Wind conditions are moderately elevated.")
         else:
-            explanations.append(
-                f"Heavy precipitation of {precipitation} mm "
-                "may reduce visibility and affect operations."
-            )
+            factors.append("Wind conditions are within the configured lower-risk range.")
 
+    if wave_value is not None:
+        if wave_value > 2.5:
+            factors.append("Wave height is elevated.")
+        elif wave_value > 1.5:
+            factors.append("Wave height is moderately elevated.")
+        else:
+            factors.append("Wave height is within the configured lower-risk range.")
 
-    # -----------------------------
-    # Severe weather explanation
-    # -----------------------------
+    if current_value is not None:
+        if current_value > 2:
+            factors.append("Ocean current is strong.")
+        elif current_value > 1:
+            factors.append("Ocean current is moderate.")
+        else:
+            factors.append("Ocean current is relatively low.")
 
-    if condition:
+    if precipitation_value is not None:
+        if precipitation_value > 8:
+            factors.append("Precipitation is elevated.")
+        elif precipitation_value > 2:
+            factors.append("Some precipitation is present.")
 
-        if "Thunderstorm" in condition:
+    condition_text = str(condition or "").lower()
 
-            explanations.append(
-                "Thunderstorm conditions are present and "
-                "require additional caution."
-            )
+    if "thunder" in condition_text or "storm" in condition_text:
+        factors.append("Storm-related weather information is present.")
 
-        elif "Heavy rain" in condition:
-
-            explanations.append(
-                "Heavy rain may reduce visibility "
-                "and affect marine operations."
-            )
-
-
-    # -----------------------------
-    # Overall explanation
-    # -----------------------------
-
-    if risk_level == "Low":
-
-        overall_explanation = (
-            f"Overall marine risk is LOW with a risk score "
-            f"of {risk_score}. "
-            "The available conditions are generally favorable "
-            "for normal marine activities."
+    if not factors:
+        factors.append(
+            "There is not enough available marine observation data to describe "
+            "specific environmental factors."
         )
 
-    elif risk_level == "Medium":
+    satellite_message = None
 
-        overall_explanation = (
-            f"Overall marine risk is MEDIUM with a risk score "
-            f"of {risk_score}. "
-            "Some weather or ocean conditions require caution, "
-            "especially for small vessels."
+    if _available(satellite):
+        satellite_message = (
+            "Satellite/PFZ information is available and can be considered "
+            "alongside the marine observations."
         )
-
     else:
-
-        overall_explanation = (
-            f"Overall marine risk is HIGH with a risk score "
-            f"of {risk_score}. "
-            "Multiple environmental factors indicate potentially "
-            "unsafe marine conditions."
+        satellite_message = (
+            "Satellite/PFZ information is not currently available for this analysis."
         )
 
+    gis_message = None
 
-    # -----------------------------
-    # Final advice
-    # -----------------------------
-
-    if risk_level == "Low":
-
-        advice = (
-            "Marine conditions are generally favorable. "
-            "Normal activities may proceed with standard safety precautions."
+    if _available(gis):
+        gis_message = (
+            "GIS information is available for spatial and zone-related context."
         )
-
-    elif risk_level == "Medium":
-
-        advice = (
-            "Exercise caution during marine activities. "
-            "Small vessels should monitor changing conditions carefully."
-        )
-
     else:
-
-        advice = (
-            "Marine activities should be avoided or postponed "
-            "if possible until conditions improve."
+        gis_message = (
+            "GIS zone information is not currently confirmed for this analysis."
         )
 
+    evidence_quality = "LIMITED"
+
+    if len(available_sources) >= 3:
+        evidence_quality = "GOOD"
+    elif len(available_sources) >= 2:
+        evidence_quality = "PARTIAL"
+    elif len(available_sources) == 1:
+        evidence_quality = "LIMITED"
+    else:
+        evidence_quality = "UNAVAILABLE"
 
     return {
-        "status": "available",
-        "risk_level": risk_level,
-        "risk_score": risk_score,
-        "explanation": overall_explanation,
-        "factors": explanations,
-        "advice": advice
+        "question": question,
+        "role": role,
+        "observations": observations,
+        "factors": factors,
+        "source_status": source_status,
+        "available_sources": available_sources,
+        "unavailable_sources": unavailable_sources,
+        "satellite_message": satellite_message,
+        "gis_message": gis_message,
+        "evidence_quality": evidence_quality,
+        "method": (
+            "ORCA combines available Weather, Ocean, Satellite/PFZ and GIS "
+            "evidence. Numerical risk is calculated separately by the "
+            "deterministic risk engine."
+        ),
+        "limitations": [
+            "Unavailable data is not replaced with fabricated observations.",
+            "The result is decision support, not official maritime navigation or safety guidance.",
+        ],
     }
+
+
+def build_human_summary(reasoning: dict) -> str:
+    """
+    Create a short UI-friendly explanation from the structured reasoning.
+    """
+
+    if not reasoning:
+        return "No reasoning information is available."
+
+    quality = reasoning.get("evidence_quality", "UNAVAILABLE")
+
+    factors = reasoning.get("factors") or []
+
+    if quality == "UNAVAILABLE":
+        return (
+            "Live marine evidence is currently unavailable, so ORCA cannot "
+            "make a reliable environmental assessment."
+        )
+
+    if not factors:
+        return (
+            "ORCA has limited environmental evidence and cannot describe "
+            "specific marine factors."
+        )
+
+    return " ".join(str(factor) for factor in factors[:3])
+
+
+def get_source_summary(reasoning: dict) -> list[dict]:
+    """
+    Return source information in a format suitable for the Evidence UI.
+    """
+
+    source_status = reasoning.get("source_status", {})
+
+    return [
+        {
+            "agent": "Weather Agent",
+            "source": "Open-Meteo Weather",
+            "status": (
+                "Available"
+                if source_status.get("weather")
+                else "Unavailable"
+            ),
+        },
+        {
+            "agent": "Ocean Agent",
+            "source": "Open-Meteo Marine",
+            "status": (
+                "Available"
+                if source_status.get("ocean")
+                else "Unavailable"
+            ),
+        },
+        {
+            "agent": "Satellite / PFZ Agent",
+            "source": "PFZ / satellite dataset",
+            "status": (
+                "Available"
+                if source_status.get("satellite")
+                else "Unavailable"
+            ),
+        },
+        {
+            "agent": "GIS Agent",
+            "source": "ORCA spatial analysis",
+            "status": (
+                "Available"
+                if source_status.get("gis")
+                else "Unavailable"
+            ),
+        },
+        {
+            "agent": "Risk Engine",
+            "source": "Deterministic ORCA risk model",
+            "status": "Used separately",
+        },
+    ]

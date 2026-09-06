@@ -1,589 +1,472 @@
-import os
+# backend/services/pfz_service.py
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
 import math
-import xarray as xr
 
 
-# ============================================================
-# PATH
-# ============================================================
-
-BASE_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..")
-)
-
-PFZ_FILE = os.path.join(
-    BASE_DIR,
-    "data",
-    "satellite",
-    "current_pfz_suitability_2026-07-31.nc"
-)
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
 
 
-# ============================================================
-# LOAD PFZ DATA
-# ============================================================
-
-def load_pfz_data():
-    """
-    Load current PFZ satellite dataset.
-    """
-
-    if not os.path.exists(PFZ_FILE):
-        raise FileNotFoundError(
-            f"Current PFZ file not found: {PFZ_FILE}"
-        )
-
-    return xr.open_dataset(PFZ_FILE)
-
-
-# ============================================================
-# COMPLETE PFZ GRID
-# ============================================================
-
-def get_pfz_data():
-    """
-    Return complete PFZ suitability grid.
-    """
-
-    ds = load_pfz_data()
-
+def _to_float(value: Any) -> float | None:
     try:
-
-        pfz = ds["pfz_suitability"]
-
-        return {
-            "date": str(ds.time.values[0])[:10],
-
-            "source": (
-                "NOAA SST + Satellite Chlorophyll"
-            ),
-
-            "latitude": (
-                ds.latitude.values.tolist()
-            ),
-
-            "longitude": (
-                ds.longitude.values.tolist()
-            ),
-
-            "pfz_suitability": (
-                pfz.values.tolist()
-            )
-        }
-
-    finally:
-
-        ds.close()
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
-# ============================================================
-# PFZ HOTSPOTS
-# ============================================================
-
-def get_pfz_hotspots():
+def _find_pfz_files() -> list[Path]:
     """
-    Return globally high-suitability PFZ points.
+    Find PFZ / satellite datasets available in the backend data directory.
 
-    Used mainly for visualization.
+    No dataset is created automatically. If no real dataset exists, the
+    service reports PFZ as unavailable.
     """
 
-    ds = load_pfz_data()
+    if not DATA_DIR.exists():
+        return []
 
-    try:
+    patterns = (
+        "*.nc",
+        "*.netcdf",
+        "*.geojson",
+        "*.json",
+    )
 
-        pfz = ds["pfz_suitability"]
+    files: list[Path] = []
 
-        daily = pfz.isel(time=0)
+    for pattern in patterns:
+        files.extend(DATA_DIR.rglob(pattern))
 
-        threshold = float(
-            daily.quantile(0.90)
-        )
+    return sorted(
+        set(files),
+        key=lambda path: str(path).lower(),
+    )
 
-        selected = daily.where(
-            daily >= threshold
-        )
 
-        points = selected.stack(
-            location=("latitude", "longitude")
-        ).dropna("location")
+def _find_netcdf_files() -> list[Path]:
+    return [
+        path
+        for path in _find_pfz_files()
+        if path.suffix.lower() in {".nc", ".netcdf"}
+    ]
 
-        points = points.sortby(
-            points,
-            ascending=False
-        )
 
-        hotspots = []
+def _find_variable(dataset: Any, names: list[str]) -> str | None:
+    """
+    Find the first matching variable in an xarray dataset.
+    """
 
-        for i in range(
-            min(100, len(points))
+    variables = set(dataset.data_vars.keys())
+
+    for name in names:
+        if name in variables:
+            return name
+
+    lowered = {
+        str(variable).lower(): variable
+        for variable in variables
+    }
+
+    for name in names:
+        if name.lower() in lowered:
+            return lowered[name.lower()]
+
+    for variable in variables:
+        variable_lower = str(variable).lower()
+
+        for name in names:
+            if name.lower() in variable_lower:
+                return variable
+
+    return None
+
+
+def _find_coordinate(
+    dataset: Any,
+    candidates: list[str],
+) -> str | None:
+    """
+    Find latitude/longitude coordinate names.
+    """
+
+    all_names = list(dataset.coords.keys()) + list(dataset.variables.keys())
+
+    for candidate in candidates:
+        for name in all_names:
+            if str(name).lower() == candidate.lower():
+                return str(name)
+
+    for name in all_names:
+        lowered = str(name).lower()
+
+        if any(
+            token in lowered
+            for token in candidates
         ):
+            return str(name)
 
-            location = points.isel(
-                location=i
-            )
-
-            hotspots.append({
-
-                "date": str(
-                    ds.time.values[0]
-                )[:10],
-
-                "latitude": round(
-                    float(location.latitude),
-                    6
-                ),
-
-                "longitude": round(
-                    float(location.longitude),
-                    6
-                ),
-
-                "suitability": round(
-                    float(location.values),
-                    4
-                )
-
-            })
-
-        return {
-
-            "date": str(
-                ds.time.values[0]
-            )[:10],
-
-            "source": (
-                "NOAA SST + Satellite Chlorophyll"
-            ),
-
-            "threshold": round(
-                threshold,
-                4
-            ),
-
-            "total_hotspots": len(
-                hotspots
-            ),
-
-            "hotspots": hotspots
-
-        }
-
-    finally:
-
-        ds.close()
+    return None
 
 
-# ============================================================
-# HAVERSINE DISTANCE
-# ============================================================
+def _nearest_index(
+    values: Any,
+    target: float,
+) -> int | None:
+    try:
+        values_list = values.values.tolist()
+    except AttributeError:
+        try:
+            values_list = list(values)
+        except TypeError:
+            return None
 
-def calculate_distance_km(
-    latitude1,
-    longitude1,
-    latitude2,
-    longitude2
-):
+    if not values_list:
+        return None
+
+    # Handle one-dimensional coordinates.
+    if values_list and isinstance(
+        values_list[0],
+        (list, tuple),
+    ):
+        return None
+
+    best_index = None
+    best_distance = None
+
+    for index, value in enumerate(values_list):
+        numeric = _to_float(value)
+
+        if numeric is None:
+            continue
+
+        distance = abs(numeric - target)
+
+        if best_distance is None or distance < best_distance:
+            best_distance = distance
+            best_index = index
+
+    return best_index
+
+
+def _extract_nearest_value(
+    dataset: Any,
+    variable_name: str,
+    latitude_name: str,
+    longitude_name: str,
+    latitude: float,
+    longitude: float,
+) -> float | None:
     """
-    Calculate geographic distance using Haversine formula.
+    Extract a nearest-grid-cell value from a regular lat/lon dataset.
     """
 
-    earth_radius_km = 6371.0
+    variable = dataset[variable_name]
 
-    lat1 = math.radians(
-        latitude1
-    )
+    lat_values = dataset[latitude_name]
+    lon_values = dataset[longitude_name]
 
-    lat2 = math.radians(
-        latitude2
-    )
-
-    delta_lat = math.radians(
-        latitude2 - latitude1
-    )
-
-    delta_lon = math.radians(
-        longitude2 - longitude1
-    )
-
-    a = (
-        math.sin(
-            delta_lat / 2
-        ) ** 2
-        +
-        math.cos(lat1)
-        *
-        math.cos(lat2)
-        *
-        math.sin(
-            delta_lon / 2
-        ) ** 2
-    )
-
-    c = 2 * math.atan2(
-        math.sqrt(a),
-        math.sqrt(1 - a)
-    )
-
-    return (
-        earth_radius_km * c
-    )
-
-
-# ============================================================
-# NEAREST PFZ
-# ============================================================
-
-def get_nearest_pfz(
-    latitude,
-    longitude
-):
-    """
-    Find the nearest suitable PFZ directly from
-    the COMPLETE satellite grid.
-
-    This is different from searching only the
-    top global hotspots.
-    """
-
-    # --------------------------------------------------------
-    # Maximum acceptable PFZ distance
-    # --------------------------------------------------------
-
-    MAX_PFZ_DISTANCE_KM = 200
-
-
-    # --------------------------------------------------------
-    # Coordinate validation
-    # --------------------------------------------------------
-
-    if not isinstance(
+    lat_index = _nearest_index(
+        lat_values,
         latitude,
-        (int, float)
-    ):
+    )
 
-        raise ValueError(
-            "Latitude must be numeric."
-        )
-
-
-    if not isinstance(
+    lon_index = _nearest_index(
+        lon_values,
         longitude,
-        (int, float)
-    ):
+    )
 
-        raise ValueError(
-            "Longitude must be numeric."
-        )
-
-
-    if not -90 <= latitude <= 90:
-
-        raise ValueError(
-            "Latitude must be between -90 and 90."
-        )
-
-
-    if not -180 <= longitude <= 180:
-
-        raise ValueError(
-            "Longitude must be between -180 and 180."
-        )
-
-
-    # --------------------------------------------------------
-    # Load dataset
-    # --------------------------------------------------------
-
-    ds = load_pfz_data()
+    if lat_index is None or lon_index is None:
+        return None
 
     try:
+        dimensions = list(variable.dims)
 
-        daily = ds[
-            "pfz_suitability"
-        ].isel(time=0)
+        indexers = {}
 
+        for dimension in dimensions:
+            lowered = str(dimension).lower()
 
-        # ----------------------------------------------------
-        # PFZ threshold
-        # ----------------------------------------------------
+            if dimension == latitude_name or "lat" in lowered:
+                indexers[dimension] = lat_index
 
-        threshold = float(
-            daily.quantile(0.75)
-        )
+            elif dimension == longitude_name or "lon" in lowered:
+                indexers[dimension] = lon_index
 
-
-        # ----------------------------------------------------
-        # Search COMPLETE GRID
-        # ----------------------------------------------------
-
-        best_point = None
-
-        best_distance = float(
-            "inf"
-        )
-
-
-        latitudes = (
-            ds.latitude.values
-        )
-
-        longitudes = (
-            ds.longitude.values
-        )
-
-
-        values = (
-            daily.values
-        )
-
-
-        # ----------------------------------------------------
-        # Iterate through every grid point
-        # ----------------------------------------------------
-
-        for i, grid_lat in enumerate(
-            latitudes
-        ):
-
-            for j, grid_lon in enumerate(
-                longitudes
+            elif (
+                "time" in lowered
+                or "date" in lowered
             ):
+                indexers[dimension] = 0
 
-                suitability = values[
-                    i,
-                    j
-                ]
+        selected = variable.isel(indexers)
 
+        value = selected.values
 
-                # --------------------------------------------
-                # Skip invalid values
-                # --------------------------------------------
+        while hasattr(value, "shape") and getattr(value, "shape", ()):
+            try:
+                value = value.flat[0]
+            except Exception:
+                break
 
-                if suitability is None:
+        return _to_float(value)
 
-                    continue
+    except Exception:
+        return None
 
 
-                try:
+def _read_netcdf(
+    path: Path,
+    latitude: float,
+    longitude: float,
+) -> dict | None:
+    """
+    Read a real PFZ NetCDF dataset using xarray.
+    """
 
-                    suitability = float(
-                        suitability
-                    )
-
-                except (
-                    ValueError,
-                    TypeError
-                ):
-
-                    continue
-
-
-                if math.isnan(
-                    suitability
-                ):
-
-                    continue
-
-
-                # --------------------------------------------
-                # Only consider suitable PFZ points
-                # --------------------------------------------
-
-                if suitability < threshold:
-
-                    continue
-
-
-                # --------------------------------------------
-                # Distance from user
-                # --------------------------------------------
-
-                distance = calculate_distance_km(
-                    latitude,
-                    longitude,
-                    float(grid_lat),
-                    float(grid_lon)
-                )
-
-
-                # --------------------------------------------
-                # Keep nearest suitable point
-                # --------------------------------------------
-
-                if distance < best_distance:
-
-                    best_distance = distance
-
-                    best_point = {
-
-                        "latitude": round(
-                            float(grid_lat),
-                            6
-                        ),
-
-                        "longitude": round(
-                            float(grid_lon),
-                            6
-                        ),
-
-                        "suitability": round(
-                            suitability,
-                            4
-                        )
-
-                    }
-
-
-        # ----------------------------------------------------
-        # No suitable point found
-        # ----------------------------------------------------
-
-        if best_point is None:
-
-            return {
-
-                "status": "available",
-
-                "message": (
-                    "No suitable PFZ point found "
-                    "in the satellite dataset."
-                ),
-
-                "user_location": {
-
-                    "latitude": round(
-                        latitude,
-                        6
-                    ),
-
-                    "longitude": round(
-                        longitude,
-                        6
-                    )
-
-                },
-
-                "nearest_pfz": None
-
-            }
-
-
-        # ----------------------------------------------------
-        # PFZ outside acceptable range
-        # ----------------------------------------------------
-
-        if best_distance > MAX_PFZ_DISTANCE_KM:
-
-            return {
-
-                "status": "available",
-
-                "message": (
-                    "No nearby PFZ hotspot found "
-                    f"within {MAX_PFZ_DISTANCE_KM} km."
-                ),
-
-                "user_location": {
-
-                    "latitude": round(
-                        latitude,
-                        6
-                    ),
-
-                    "longitude": round(
-                        longitude,
-                        6
-                    )
-
-                },
-
-                "nearest_pfz": None,
-
-                "nearest_known_hotspot_distance_km": round(
-                    best_distance,
-                    2
-                )
-
-            }
-
-
-        # ----------------------------------------------------
-        # Suitability level
-        # ----------------------------------------------------
-
-        suitability = (
-            best_point["suitability"]
-        )
-
-
-        if suitability >= 0.70:
-
-            suitability_level = "High"
-
-        elif suitability >= 0.50:
-
-            suitability_level = "Moderate"
-
-        else:
-
-            suitability_level = "Low"
-
-
-        # ----------------------------------------------------
-        # Final PFZ
-        # ----------------------------------------------------
-
-        best_point.update({
-
-            "date": str(
-                ds.time.values[0]
-            )[:10],
-
-            "suitability_level": (
-                suitability_level
-            ),
-
-            "distance_km": round(
-                best_distance,
-                2
-            )
-
-        })
-
-
+    try:
+        import xarray as xr
+    except ImportError:
         return {
-
-            "status": "available",
-
+            "status": "unavailable",
             "message": (
-                "Nearest suitable PFZ found "
-                "from the complete satellite grid."
+                "xarray is not installed, so the PFZ NetCDF dataset "
+                "cannot be read."
             ),
-
-            "user_location": {
-
-                "latitude": round(
-                    latitude,
-                    6
-                ),
-
-                "longitude": round(
-                    longitude,
-                    6
-                )
-
-            },
-
-            "threshold": round(
-                threshold,
-                4
-            ),
-
-            "nearest_pfz": best_point
-
         }
 
+    try:
+        dataset = xr.open_dataset(path)
+
+    except Exception as error:
+        return {
+            "status": "unavailable",
+            "message": f"PFZ dataset could not be opened: {error}",
+        }
+
+    try:
+        latitude_name = _find_coordinate(
+            dataset,
+            [
+                "latitude",
+                "lat",
+                "y",
+            ],
+        )
+
+        longitude_name = _find_coordinate(
+            dataset,
+            [
+                "longitude",
+                "lon",
+                "x",
+            ],
+        )
+
+        if latitude_name is None or longitude_name is None:
+            return {
+                "status": "unavailable",
+                "message": (
+                    "PFZ dataset does not contain identifiable "
+                    "latitude/longitude coordinates."
+                ),
+            }
+
+        variable_name = _find_variable(
+            dataset,
+            [
+                "pfz_suitability",
+                "pfz_suitability_score",
+                "suitability",
+                "fishing_suitability",
+                "fish_suitability",
+                "chlorophyll",
+                "chlor_a",
+                "chl",
+            ],
+        )
+
+        if variable_name is None:
+            return {
+                "status": "unavailable",
+                "message": (
+                    "No recognised PFZ/suitability variable was found "
+                    "in the dataset."
+                ),
+            }
+
+        value = _extract_nearest_value(
+            dataset,
+            variable_name,
+            latitude_name,
+            longitude_name,
+            latitude,
+            longitude,
+        )
+
+        if value is None or not math.isfinite(value):
+            return {
+                "status": "unavailable",
+                "message": (
+                    "The PFZ dataset contains no usable value near "
+                    "the selected coordinate."
+                ),
+            }
+
+        return {
+            "status": "available",
+            "latitude": latitude,
+            "longitude": longitude,
+            "value": value,
+            "variable": variable_name,
+            "dataset": path.name,
+            "source": "PFZ satellite dataset",
+        }
 
     finally:
+        try:
+            dataset.close()
+        except Exception:
+            pass
 
-        ds.close()
+
+def get_pfz_data(
+    latitude: float,
+    longitude: float,
+) -> dict:
+    """
+    Return PFZ information from a real local satellite/PFZ dataset.
+
+    If no dataset exists, this function explicitly reports unavailable.
+    It never fabricates PFZ suitability.
+    """
+
+    lat = _to_float(latitude)
+    lon = _to_float(longitude)
+
+    if lat is None or lon is None:
+        return {
+            "status": "unavailable",
+            "suitability": None,
+            "message": "Invalid latitude or longitude.",
+            "source": "PFZ satellite dataset",
+        }
+
+    if not (-90 <= lat <= 90):
+        return {
+            "status": "unavailable",
+            "suitability": None,
+            "message": "Latitude is outside the valid range.",
+            "source": "PFZ satellite dataset",
+        }
+
+    if not (-180 <= lon <= 180):
+        return {
+            "status": "unavailable",
+            "suitability": None,
+            "message": "Longitude is outside the valid range.",
+            "source": "PFZ satellite dataset",
+        }
+
+    netcdf_files = _find_netcdf_files()
+
+    if not netcdf_files:
+        return {
+            "status": "unavailable",
+            "suitability": None,
+            "latitude": lat,
+            "longitude": lon,
+            "message": (
+                "No PFZ NetCDF dataset is currently available. "
+                "ORCA will not invent PFZ information."
+            ),
+            "source": "PFZ satellite dataset",
+        }
+
+    for dataset_path in netcdf_files:
+        result = _read_netcdf(
+            dataset_path,
+            lat,
+            lon,
+        )
+
+        if not result:
+            continue
+
+        if result.get("status") == "available":
+            raw_value = result.get("value")
+
+            return {
+                "status": "available",
+                "latitude": lat,
+                "longitude": lon,
+                "suitability": raw_value,
+                "raw_value": raw_value,
+                "variable": result.get("variable"),
+                "dataset": result.get("dataset"),
+                "source": "PFZ satellite dataset",
+                "message": (
+                    "PFZ information was read from the available "
+                    "satellite/PFZ dataset."
+                ),
+            }
+
+    return {
+        "status": "unavailable",
+        "suitability": None,
+        "latitude": lat,
+        "longitude": lon,
+        "message": (
+            "A PFZ dataset exists, but no usable PFZ value could be "
+            "read near the selected coordinate."
+        ),
+        "source": "PFZ satellite dataset",
+    }
+
+
+def get_pfz_status(
+    latitude: float,
+    longitude: float,
+) -> dict:
+    """
+    Lightweight PFZ status wrapper for the Evidence/Agent UI.
+    """
+
+    data = get_pfz_data(
+        latitude,
+        longitude,
+    )
+
+    if data.get("status") != "available":
+        return {
+            "status": "unavailable",
+            "available": False,
+            "source": data.get(
+                "source",
+                "PFZ satellite dataset",
+            ),
+            "message": data.get(
+                "message",
+                "PFZ information is unavailable.",
+            ),
+        }
+
+    return {
+        "status": "available",
+        "available": True,
+        "source": data.get(
+            "source",
+            "PFZ satellite dataset",
+        ),
+        "suitability": data.get("suitability"),
+        "dataset": data.get("dataset"),
+        "variable": data.get("variable"),
+        "message": data.get(
+            "message",
+            "PFZ information is available.",
+        ),
+    }

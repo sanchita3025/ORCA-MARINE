@@ -1,1205 +1,1001 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getSpeechLanguage,
+  useOrcaLanguage,
+} from "../i18n";
 
-type LocationResult = {
-  name: string;
-  latitude: number;
-  longitude: number;
+type BoatSize = "small" | "medium" | "large";
+
+type BoatInfo = {
+  size: BoatSize;
 };
 
 type QueryFormProps = {
-  onAsk: (data: {
-    question: string;
-    latitude: number;
-    longitude: number;
-    datetime: string;
-    locationName: string;
-  }) => void;
-
+  onAsk: (
+    question: string,
+    location: string,
+    date: string,
+    time: string,
+    latitude: number,
+    longitude: number,
+    boatInfo?: BoatInfo | null
+  ) => void;
   loading?: boolean;
+  roleId?: string;
 };
 
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-}
+type LocationResult = {
+  display_name: string;
+  lat: string;
+  lon: string;
+};
 
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message?: string;
-}
-
-interface SpeechRecognitionInstance {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-
-  addEventListener: (
-    type: string,
-    listener: EventListenerOrEventListenerObject
-  ) => void;
-
-  removeEventListener: (
-    type: string,
-    listener: EventListenerOrEventListenerObject
-  ) => void;
-
-  dispatchEvent: (event: Event) => boolean;
-
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-}
-
-interface SpeechRecognitionConstructor {
-  new (): SpeechRecognitionInstance;
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  }
-}
-
-function getTodayString() {
-  const now = new Date();
-
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-function QueryForm({
+export default function QueryForm({
   onAsk,
   loading = false,
+  roleId = "",
 }: QueryFormProps) {
+  const { language, languageInfo, speechLanguage, t } =
+    useOrcaLanguage();
+
   const [question, setQuestion] = useState("");
+  const [location, setLocation] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
 
-  const [locationInput, setLocationInput] =
-    useState("Paradip Coast");
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
 
-  const [selectedLocation, setSelectedLocation] =
-    useState<LocationResult>({
-      name: "Paradip Coast",
-      latitude: 20.31,
-      longitude: 86.61,
-    });
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
 
-  const [locationResults, setLocationResults] =
-    useState<LocationResult[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
 
-  const [locationSearching, setLocationSearching] =
+  const [locationSuggestions, setLocationSuggestions] = useState<
+    LocationResult[]
+  >([]);
+  const [showLocationSuggestions, setShowLocationSuggestions] =
     useState(false);
 
-  const [showLocationResults, setShowLocationResults] =
-    useState(false);
+  const [boatSize, setBoatSize] = useState<BoatSize | "">("");
 
-  const [locationError, setLocationError] =
-    useState("");
+  const recognitionRef = useRef<any>(null);
+  const locationTimerRef = useRef<number | null>(null);
 
-  const [selectedDate, setSelectedDate] =
-    useState(getTodayString());
+  const isFisherman =
+    roleId === "fisherman" ||
+    roleId === "fishermen" ||
+    roleId === "authorized-fisherman";
 
-  const [selectedTime, setSelectedTime] =
-    useState("06:00");
+  const isBoatOperator =
+    roleId === "boat-operator" ||
+    roleId === "boat_operator" ||
+    roleId === "boatOperator";
 
-  const [isListening, setIsListening] =
-    useState(false);
+  const needsBoatInfo = isFisherman || isBoatOperator;
 
-  const [speechSupported, setSpeechSupported] =
-    useState(true);
-
-  const [speechError, setSpeechError] =
-    useState("");
-
-  const [interimText, setInterimText] =
-    useState("");
-
-  const recognitionRef =
-    useRef<SpeechRecognitionInstance | null>(null);
-
-  const locationSearchTimer =
-    useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /*
-  =========================================================
-  SPEECH RECOGNITION
-  =========================================================
-  */
+  const today = useMemo(() => {
+    return new Date().toISOString().split("T")[0];
+  }, []);
 
   useEffect(() => {
-    const SpeechRecognition =
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition;
+    if (!date) {
+      setDate(today);
+    }
 
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
+    if (!time) {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, "0");
+      const minutes = String(now.getMinutes()).padStart(2, "0");
+      setTime(`${hours}:${minutes}`);
+    }
+  }, [date, time, today]);
+
+  useEffect(() => {
+    return () => {
+      if (locationTimerRef.current) {
+        window.clearTimeout(locationTimerRef.current);
+      }
+
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // Ignore cleanup errors.
+        }
+      }
+    };
+  }, []);
+
+  const suggestions = useMemo(() => {
+    const role = roleId.toLowerCase();
+
+    if (
+      role.includes("fisher") ||
+      role.includes("boat")
+    ) {
+      return [
+        t(
+          "query.suggestions.fishing",
+          "Is it safe to go fishing today?"
+        ),
+        t(
+          "query.suggestions.weather",
+          "What are the weather and ocean conditions?"
+        ),
+        t(
+          "query.suggestions.risk",
+          "What is the marine risk level?"
+        ),
+        t(
+          "query.suggestions.pfz",
+          "Where are the nearby potential fishing zones?"
+        ),
+      ];
+    }
+
+    if (role.includes("research")) {
+      return [
+        t(
+          "query.suggestions.research",
+          "What are the current marine conditions?"
+        ),
+        t(
+          "query.suggestions.ocean",
+          "What does the ocean data show?"
+        ),
+        t(
+          "query.suggestions.pfz",
+          "What does the satellite data indicate?"
+        ),
+        t(
+          "query.suggestions.risk",
+          "What are the current environmental risks?"
+        ),
+      ];
+    }
+
+    if (
+      role.includes("environment") ||
+      role.includes("authority")
+    ) {
+      return [
+        t(
+          "query.suggestions.risk",
+          "What are the current marine risks?"
+        ),
+        t(
+          "query.suggestions.ocean",
+          "What are the current ocean conditions?"
+        ),
+        t(
+          "query.suggestions.weather",
+          "What weather conditions should we monitor?"
+        ),
+        t(
+          "query.suggestions.pfz",
+          "What does the satellite data indicate?"
+        ),
+      ];
+    }
+
+    return [
+      t(
+        "query.suggestions.weather",
+        "What is the weather like here?"
+      ),
+      t(
+        "query.suggestions.ocean",
+        "What are the current ocean conditions?"
+      ),
+      t(
+        "query.suggestions.risk",
+        "Is this area safe right now?"
+      ),
+      t(
+        "query.suggestions.marine",
+        "What is happening in the marine environment?"
+      ),
+    ];
+  }, [roleId, t]);
+
+  const getCurrentLocation = () => {
+    setLocationError("");
+
+    if (!navigator.geolocation) {
+      setLocationError(
+        t(
+          "query.locationNotSupported",
+          "Location services are not supported by this browser."
+        )
+      );
       return;
     }
 
-    setSpeechSupported(true);
+    setLocationLoading(true);
 
-    const recognition =
-      new SpeechRecognition();
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
 
-    recognition.continuous = true;
+        setLatitude(lat);
+        setLongitude(lon);
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}`
+          );
+
+          if (!response.ok) {
+            throw new Error("Reverse geocoding failed");
+          }
+
+          const data = await response.json();
+
+          const address = data?.address || {};
+
+          const readableLocation =
+            address.city ||
+            address.town ||
+            address.village ||
+            address.municipality ||
+            address.county ||
+            data?.display_name ||
+            `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+
+          setLocation(readableLocation);
+        } catch {
+          setLocation(
+            `${lat.toFixed(4)}, ${lon.toFixed(4)}`
+          );
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+
+        if (error.code === 1) {
+          setLocationError(
+            t(
+              "query.locationPermission",
+              "Location permission was denied."
+            )
+          );
+        } else if (error.code === 2) {
+          setLocationError(
+            t(
+              "query.locationUnavailable",
+              "Your location could not be determined."
+            )
+          );
+        } else {
+          setLocationError(
+            t(
+              "query.locationTimeout",
+              "Location request timed out."
+            )
+          );
+        }
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 60000,
+      }
+    );
+  };
+
+  const searchLocation = async (value: string) => {
+    if (!value.trim() || value.trim().length < 2) {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(
+          value
+        )}`
+      );
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data: LocationResult[] = await response.json();
+
+      setLocationSuggestions(data);
+      setShowLocationSuggestions(data.length > 0);
+    } catch {
+      setLocationSuggestions([]);
+      setShowLocationSuggestions(false);
+    }
+  };
+
+  const handleLocationChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = event.target.value;
+
+    setLocation(value);
+    setLatitude(null);
+    setLongitude(null);
+
+    if (locationTimerRef.current) {
+      window.clearTimeout(locationTimerRef.current);
+    }
+
+    locationTimerRef.current = window.setTimeout(() => {
+      searchLocation(value);
+    }, 500);
+  };
+
+  const selectLocation = (item: LocationResult) => {
+    setLocation(item.display_name);
+    setLatitude(Number(item.lat));
+    setLongitude(Number(item.lon));
+    setShowLocationSuggestions(false);
+    setLocationSuggestions([]);
+  };
+
+  const startVoiceInput = () => {
+    setVoiceError("");
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError(
+        t(
+          "query.voiceNotSupported",
+          "Voice input is not supported in this browser."
+        )
+      );
+      return;
+    }
+
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Ignore.
+      }
+
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang =
+      getSpeechLanguage(language) ||
+      speechLanguage ||
+      languageInfo?.speechCode ||
+      "en-IN";
+
+    recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.lang = "en-IN";
+    recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
       setIsListening(true);
-      setSpeechError("");
+      setVoiceError("");
     };
 
-    recognition.onresult = (event) => {
-      let finalTranscript = "";
-      let interimTranscript = "";
+    recognition.onresult = (event: any) => {
+      let finalText = "";
 
       for (
-        let i = 0;
+        let i = event.resultIndex;
         i < event.results.length;
         i++
       ) {
-        const result = event.results[i];
-
         const transcript =
-          result[0]?.transcript || "";
+          event.results[i]?.[0]?.transcript || "";
 
-        if (result.isFinal) {
-          finalTranscript += transcript + " ";
-        } else {
-          interimTranscript += transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript;
         }
       }
 
-      if (finalTranscript.trim()) {
-        setQuestion((previous) => {
-          const separator =
-            previous.trim().length > 0
-              ? " "
-              : "";
-
-          return (
-            previous.trim() +
-            separator +
-            finalTranscript.trim()
-          );
-        });
+      if (finalText.trim()) {
+        setQuestion((previous) =>
+          previous
+            ? `${previous.trim()} ${finalText.trim()}`
+            : finalText.trim()
+        );
       }
-
-      setInterimText(interimTranscript);
     };
 
-    recognition.onerror = (event) => {
-      console.error(
-        "ORCA Speech Recognition Error:",
-        event.error
-      );
-
+    recognition.onerror = (event: any) => {
       setIsListening(false);
 
-      switch (event.error) {
-        case "not-allowed":
-          setSpeechError(
-            "Microphone permission was denied. Please allow microphone access."
-          );
-          break;
-
-        case "audio-capture":
-          setSpeechError(
-            "No microphone was detected. Check your microphone."
-          );
-          break;
-
-        case "network":
-          setSpeechError(
-            "Speech service could not connect. Check your internet connection."
-          );
-          break;
-
-        case "no-speech":
-          setSpeechError(
+      if (event?.error === "not-allowed") {
+        setVoiceError(
+          t(
+            "query.microphonePermission",
+            "Microphone permission was denied."
+          )
+        );
+      } else if (event?.error === "no-speech") {
+        setVoiceError(
+          t(
+            "query.noSpeech",
             "No speech was detected. Please try again."
-          );
-          break;
-
-        case "aborted":
-          setSpeechError("");
-          break;
-
-        default:
-          setSpeechError(
-            `Speech recognition error: ${event.error}`
-          );
+          )
+        );
+      } else {
+        setVoiceError(
+          t(
+            "query.voiceError",
+            "Voice input could not be started."
+          )
+        );
       }
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      setInterimText("");
     };
 
     recognitionRef.current = recognition;
 
-    return () => {
-      try {
-        recognition.abort();
-      } catch {
-        // Ignore cleanup errors
-      }
-
-      recognitionRef.current = null;
-    };
-  }, []);
-
-  /*
-  =========================================================
-  LOCATION SEARCH
-  =========================================================
-  */
-
-  useEffect(() => {
-    const searchText =
-      locationInput.trim();
-
-    if (
-      searchText.length < 3 ||
-      searchText === selectedLocation.name
-    ) {
-      setLocationResults([]);
-      setShowLocationResults(false);
-      return;
-    }
-
-    if (locationSearchTimer.current) {
-      clearTimeout(
-        locationSearchTimer.current
-      );
-    }
-
-    locationSearchTimer.current =
-      setTimeout(async () => {
-        try {
-          setLocationSearching(true);
-          setLocationError("");
-
-          const url =
-            `https://nominatim.openstreetmap.org/search` +
-            `?q=${encodeURIComponent(searchText)}` +
-            `&format=json` +
-            `&limit=5` +
-            `&countrycodes=in` +
-            `&addressdetails=1`;
-
-          const response =
-            await fetch(url, {
-              headers: {
-                Accept:
-                  "application/json",
-              },
-            });
-
-          if (!response.ok) {
-            throw new Error(
-              "Location search failed."
-            );
-          }
-
-          const data =
-            await response.json();
-
-          const results: LocationResult[] =
-            data.map(
-              (item: {
-                display_name: string;
-                lat: string;
-                lon: string;
-              }) => ({
-                name: item.display_name,
-                latitude: Number(item.lat),
-                longitude: Number(item.lon),
-              })
-            );
-
-          setLocationResults(results);
-
-          setShowLocationResults(
-            results.length > 0
-          );
-        } catch (error) {
-          console.error(
-            "Location search error:",
-            error
-          );
-
-          setLocationResults([]);
-
-          setLocationError(
-            "Unable to search locations right now."
-          );
-        } finally {
-          setLocationSearching(false);
-        }
-      }, 450);
-
-    return () => {
-      if (locationSearchTimer.current) {
-        clearTimeout(
-          locationSearchTimer.current
-        );
-      }
-    };
-  }, [
-    locationInput,
-    selectedLocation.name,
-  ]);
-
-  /*
-  =========================================================
-  SELECT LOCATION
-  =========================================================
-  */
-
-  function selectLocation(
-    location: LocationResult
-  ) {
-    setSelectedLocation(location);
-    setLocationInput(location.name);
-    setLocationResults([]);
-    setShowLocationResults(false);
-    setLocationError("");
-  }
-
-  /*
-  =========================================================
-  CURRENT LOCATION
-  =========================================================
-  */
-
-  function useCurrentLocation() {
-    if (!navigator.geolocation) {
-      setLocationError(
-        "Geolocation is not supported by this browser."
-      );
-
-      return;
-    }
-
-    setLocationSearching(true);
-    setLocationError("");
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const latitude =
-          position.coords.latitude;
-
-        const longitude =
-          position.coords.longitude;
-
-        let locationName =
-          "Current location";
-
-        try {
-          const url =
-            `https://nominatim.openstreetmap.org/reverse` +
-            `?lat=${latitude}` +
-            `&lon=${longitude}` +
-            `&format=json`;
-
-          const response =
-            await fetch(url, {
-              headers: {
-                Accept:
-                  "application/json",
-              },
-            });
-
-          if (response.ok) {
-            const data =
-              await response.json();
-
-            locationName =
-              data.display_name ||
-              "Current location";
-          }
-        } catch (error) {
-          console.warn(
-            "Reverse geocoding failed:",
-            error
-          );
-        }
-
-        const location: LocationResult = {
-          name: locationName,
-          latitude,
-          longitude,
-        };
-
-        setSelectedLocation(location);
-        setLocationInput(locationName);
-        setShowLocationResults(false);
-        setLocationResults([]);
-        setLocationSearching(false);
-      },
-
-      (error) => {
-        console.error(
-          "Geolocation error:",
-          error
-        );
-
-        setLocationSearching(false);
-
-        switch (error.code) {
-          case error.PERMISSION_DENIED:
-            setLocationError(
-              "Location permission was denied. Please allow location access."
-            );
-            break;
-
-          case error.POSITION_UNAVAILABLE:
-            setLocationError(
-              "Your current location could not be determined."
-            );
-            break;
-
-          case error.TIMEOUT:
-            setLocationError(
-              "Location request timed out. Please try again."
-            );
-            break;
-
-          default:
-            setLocationError(
-              "Unable to get your current location."
-            );
-        }
-      },
-
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000,
-      }
-    );
-  }
-
-  /*
-  =========================================================
-  VOICE
-  =========================================================
-  */
-
-  function toggleListening() {
-    if (!speechSupported) {
-      setSpeechError(
-        "Speech recognition is not supported. Please use Chrome or Edge."
-      );
-
-      return;
-    }
-
-    const recognition =
-      recognitionRef.current;
-
-    if (!recognition) {
-      setSpeechError(
-        "Speech recognition could not be initialized."
-      );
-
-      return;
-    }
-
-    if (isListening) {
-      try {
-        recognition.stop();
-      } catch {
-        // Ignore
-      }
-
-      setIsListening(false);
-      setInterimText("");
-
-      return;
-    }
-
-    setSpeechError("");
-    setInterimText("");
-
     try {
       recognition.start();
-    } catch (error) {
-      console.error(error);
-
+    } catch {
       setIsListening(false);
-
-      setSpeechError(
-        "Could not start the microphone. Please try again."
+      setVoiceError(
+        t(
+          "query.voiceError",
+          "Voice input could not be started."
+        )
       );
     }
-  }
+  };
 
-  /*
-  =========================================================
-  DATE
-  =========================================================
-  */
+  const handleSuggestion = (value: string) => {
+    setQuestion(value);
+  };
 
-  function handleDateChange(
-    date: string
-  ) {
-    if (!date) return;
+  const handleAnalyze = () => {
+    const trimmedQuestion = question.trim();
+    const trimmedLocation = location.trim();
 
-    setSelectedDate(date);
-  }
-
-  /*
-  =========================================================
-  TIME
-  =========================================================
-  */
-
-  function handleTimeChange(
-    time: string
-  ) {
-    setSelectedTime(time);
-  }
-
-  function parseTime12(time: string) {
-    const [hourText, minute] =
-      time.split(":");
-
-    const hour24 = Number(hourText);
-    const period =
-      hour24 >= 12 ? "PM" : "AM";
-
-    const hour12 =
-      hour24 % 12 || 12;
-
-    return {
-      hour: String(hour12),
-      minute,
-      period,
-    };
-  }
-
-  function buildTime24(
-    hour: string,
-    minute: string,
-    period: string
-  ) {
-    let hour24 = Number(hour);
-
-    if (
-      period === "AM" &&
-      hour24 === 12
-    ) {
-      hour24 = 0;
-    }
-
-    if (
-      period === "PM" &&
-      hour24 !== 12
-    ) {
-      hour24 += 12;
-    }
-
-    return `${String(hour24).padStart(
-      2,
-      "0"
-    )}:${minute}`;
-  }
-
-  function formatTime12(time: string) {
-    if (!time) return "Select time";
-
-    const {
-      hour,
-      minute,
-      period,
-    } = parseTime12(time);
-
-    return `${hour}:${minute} ${period}`;
-  }
-
-  /*
-  =========================================================
-  ASK ORCA
-  =========================================================
-  */
-
-  function handleSubmit() {
-    const cleanedQuestion =
-      question.trim();
-
-    if (!cleanedQuestion) {
-      setSpeechError(
-        "Please enter or speak a question first."
+    if (!trimmedQuestion) {
+      setVoiceError(
+        t(
+          "query.questionRequired",
+          "Please enter a question for ORCA."
+        )
       );
-
       return;
     }
 
-    if (!selectedLocation) {
+    if (!trimmedLocation) {
       setLocationError(
-        "Please select a marine location."
+        t(
+          "query.locationRequired",
+          "Please enter or select a location."
+        )
       );
+      return;
+    }
+
+    if (!date) {
+      setVoiceError(
+        t(
+          "query.dateRequired",
+          "Please select a date."
+        )
+      );
+      return;
+    }
+
+    if (!time) {
+      setVoiceError(
+        t(
+          "query.timeRequired",
+          "Please select a time."
+        )
+      );
+      return;
+    }
+
+    if (
+      needsBoatInfo &&
+      !boatSize
+    ) {
+      setVoiceError(
+        t(
+          "query.boatSizeRequired",
+          "Please select your boat size before analysis."
+        )
+      );
+      return;
+    }
+
+    let finalLatitude = latitude;
+    let finalLongitude = longitude;
+
+    /*
+     * If the user typed a location but did not select a
+     * search result, geocode it before sending the analysis.
+     */
+    if (
+      finalLatitude === null ||
+      finalLongitude === null
+    ) {
+      setLocationLoading(true);
+
+      fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(
+          trimmedLocation
+        )}`
+      )
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error("Location search failed");
+          }
+
+          return response.json();
+        })
+        .then((data: LocationResult[]) => {
+          if (!data?.length) {
+            throw new Error("Location not found");
+          }
+
+          finalLatitude = Number(data[0].lat);
+          finalLongitude = Number(data[0].lon);
+
+          setLatitude(finalLatitude);
+          setLongitude(finalLongitude);
+
+          onAsk(
+            trimmedQuestion,
+            trimmedLocation,
+            date,
+            time,
+            finalLatitude,
+            finalLongitude,
+            needsBoatInfo && boatSize
+              ? {
+                  size: boatSize,
+                }
+              : null
+          );
+        })
+        .catch(() => {
+          setLocationError(
+            t(
+              "query.locationNotFound",
+              "Could not determine this location. Please select a location from the suggestions or use your current location."
+            )
+          );
+        })
+        .finally(() => {
+          setLocationLoading(false);
+        });
 
       return;
     }
 
-    if (!selectedDate) {
-      setSpeechError(
-        "Please select a departure date."
-      );
-
-      return;
-    }
-
-    if (!selectedTime) {
-      setSpeechError(
-        "Please select a departure time."
-      );
-
-      return;
-    }
-
-    if (isListening) {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        // Ignore
-      }
-
-      setIsListening(false);
-    }
-
-    const datetime =
-      `${selectedDate}T${selectedTime}`;
-
-    setSpeechError("");
-
-    onAsk({
-      question: cleanedQuestion,
-      latitude:
-        selectedLocation.latitude,
-      longitude:
-        selectedLocation.longitude,
-      datetime,
-      locationName:
-        selectedLocation.name,
-    });
-  }
-
-  /*
-  =========================================================
-  SUGGESTIONS
-  =========================================================
-  */
-
-  const suggestions = [
-    "Is it safe to go fishing tomorrow morning?",
-    "What are the marine conditions today?",
-    "Is the sea safe for a small fishing boat?",
-  ];
-
-  function useSuggestion(
-    text: string
-  ) {
-    setQuestion(text);
-    setSpeechError("");
-    setInterimText("");
-  }
-
-  /*
-  =========================================================
-  QUICK TIME OPTIONS
-  =========================================================
-  */
-
-  const quickTimes = [
-    "05:00",
-    "06:00",
-    "07:00",
-    "08:00",
-    "09:00",
-    "10:00",
-    "11:00",
-    "12:00",
-  ];
-
-  /*
-  =========================================================
-  RENDER
-  =========================================================
-  */
+    onAsk(
+      trimmedQuestion,
+      trimmedLocation,
+      date,
+      time,
+      finalLatitude,
+      finalLongitude,
+      needsBoatInfo && boatSize
+        ? {
+            size: boatSize,
+          }
+        : null
+    );
+  };
 
   return (
-    <div className="query-form">
+    <section className="query-form">
+      <div className="query-header">
+        <div>
+          <div className="query-eyebrow">
+            ORCA INTELLIGENCE
+          </div>
 
-      <div
-        className={`query-input-wrapper ${
-          isListening
-            ? "query-listening"
-            : ""
-        }`}
-      >
-        <textarea
-          value={question}
-          onChange={(event) => {
-            setQuestion(
-              event.target.value
-            );
+          <h2>
+            {t(
+              "query.title",
+              "Ask ORCA"
+            )}
+          </h2>
 
-            setSpeechError("");
-          }}
-          placeholder="Ask ORCA about the marine environment..."
-          disabled={loading}
-          rows={4}
-        />
+          <p>
+            {t(
+              "query.subtitle",
+              "Ask a marine question in your preferred language. ORCA combines weather, ocean, satellite and GIS evidence before giving a decision."
+            )}
+          </p>
+        </div>
 
-        {isListening &&
-          interimText && (
-            <div className="speech-interim">
-              <span className="speech-dot" />
-              {interimText}
-            </div>
-          )}
+        <div className="query-language-badge">
+          <span>{languageInfo.native}</span>
+          <small>
+            {languageInfo.name}
+          </small>
+        </div>
+      </div>
 
-        <div className="query-controls">
+      <div className="query-main">
+        <div className="query-question-section">
+          <label className="query-label">
+            {t(
+              "query.questionLabel",
+              "What would you like to know?"
+            )}
+          </label>
 
-          <div className="query-left-controls">
+          <div className="query-input-wrapper">
+            <textarea
+              value={question}
+              onChange={(event) =>
+                setQuestion(event.target.value)
+              }
+              placeholder={t(
+                "query.placeholder",
+                "Ask ORCA anything about marine safety, weather, ocean conditions, fishing, risks or the environment..."
+              )}
+              rows={5}
+              disabled={loading}
+            />
 
             <button
               type="button"
-              className={`voice-button ${
+              className={
                 isListening
-                  ? "voice-button-active"
-                  : ""
-              }`}
-              onClick={toggleListening}
+                  ? "voice-button listening"
+                  : "voice-button"
+              }
+              onClick={startVoiceInput}
               disabled={loading}
+              title={
+                isListening
+                  ? t(
+                      "query.stopVoice",
+                      "Stop voice input"
+                    )
+                  : t(
+                      "query.voice",
+                      "Speak your question"
+                    )
+              }
             >
-              {isListening ? (
-                <>
-                  <span className="mic-animation">
-                    ●
-                  </span>
-
-                  LISTENING...
-                </>
-              ) : (
-                <>
-                  🎙️
-                  <span>SPEAK</span>
-                </>
-              )}
+              {isListening ? "■" : "🎙"}
             </button>
-
-            {question.length > 0 && (
-              <button
-                type="button"
-                className="clear-button"
-                onClick={() => {
-                  setQuestion("");
-                  setInterimText("");
-                  setSpeechError("");
-                }}
-              >
-                CLEAR
-              </button>
-            )}
-
           </div>
 
-          <button
-            type="button"
-            className="ask-button"
-            onClick={handleSubmit}
-            disabled={
-              loading ||
-              !question.trim()
-            }
-          >
-            {loading
-              ? "ANALYZING..."
-              : "ASK ORCA →"}
-          </button>
-
-        </div>
-      </div>
-
-      <div className="try-asking">
-
-        <p>TRY ASKING</p>
-
-        <div className="suggestion-list">
-
-          {suggestions.map(
-            (suggestion) => (
-              <button
-                type="button"
-                key={suggestion}
-                onClick={() =>
-                  useSuggestion(
-                    suggestion
-                  )
-                }
-                disabled={loading}
-              >
-                {suggestion}
-                <span aria-hidden="true">
-                  →
-                </span>
-              </button>
-            )
-          )}
-
-        </div>
-      </div>
-
-      <div className="location-selector">
-
-        <div className="location-header">
-
-          <label>
-            📍 LOCATION
-          </label>
-
-          <button
-            type="button"
-            className="current-location-button"
-            onClick={useCurrentLocation}
-            disabled={
-              loading ||
-              locationSearching
-            }
-          >
-            {locationSearching
-              ? "LOCATING..."
-              : "◎ USE CURRENT LOCATION"}
-          </button>
-
-        </div>
-
-        <div className="location-search-wrapper">
-
-          <input
-            type="text"
-            value={locationInput}
-            onChange={(event) => {
-              setLocationInput(
-                event.target.value
-              );
-
-              setShowLocationResults(true);
-              setLocationError("");
-            }}
-            onFocus={() => {
-              if (
-                locationResults.length > 0
-              ) {
-                setShowLocationResults(true);
-              }
-            }}
-            placeholder="Search coastal city, port or marine location..."
-            disabled={loading}
-          />
-
-          {locationSearching && (
-            <span className="location-search-spinner">
-              ●
-            </span>
-          )}
-
-          {showLocationResults &&
-            locationResults.length > 0 && (
-              <div className="location-results">
-
-                {locationResults.map(
-                  (location, index) => (
-                    <button
-                      type="button"
-                      key={`${location.latitude}-${location.longitude}-${index}`}
-                      onClick={() =>
-                        selectLocation(
-                          location
-                        )
-                      }
-                    >
-                      <span>📍</span>
-
-                      <div>
-                        <strong>
-                          {location.name.split(
-                            ","
-                          )[0]}
-                        </strong>
-
-                        <small>
-                          {location.name}
-                        </small>
-                      </div>
-                    </button>
-                  )
-                )}
-
-              </div>
+          <div className="voice-language-info">
+            {t(
+              "query.voiceLanguage",
+              "Voice language"
             )}
+            :{" "}
+            <strong>
+              {languageInfo.native}
+            </strong>
+            {" • "}
+            {speechLanguage}
+          </div>
 
-        </div>
+          {voiceError && (
+            <div className="query-error">
+              {voiceError}
+            </div>
+          )}
 
-        {selectedLocation && (
-          <div className="selected-location">
-
-            <span className="selected-location-dot" />
-
-            <div>
-              <strong>
-                {selectedLocation.name}
-              </strong>
-
-              <small>
-                Location selected for assessment
-              </small>
+          <div className="query-suggestions">
+            <div className="suggestions-label">
+              {t(
+                "query.suggestionsTitle",
+                "Try asking"
+              )}
             </div>
 
+            <div className="suggestions-list">
+              {suggestions.map(
+                (suggestion, index) => (
+                  <button
+                    type="button"
+                    key={`${suggestion}-${index}`}
+                    onClick={() =>
+                      handleSuggestion(
+                        suggestion
+                      )
+                    }
+                    disabled={loading}
+                    className="suggestion-button"
+                  >
+                    {suggestion}
+                  </button>
+                )
+              )}
+            </div>
           </div>
-        )}
-
-        {locationError && (
-          <div className="speech-error">
-
-            <span>⚠</span>
-
-            <span>
-              {locationError}
-            </span>
-
-          </div>
-        )}
-
-      </div>
-
-      <div className="departure-settings">
-
-        <div className="departure-date-field">
-
-          <label htmlFor="departure-date">
-            📅 DEPARTURE DATE
-          </label>
-
-          <input
-            id="departure-date"
-            type="date"
-            value={selectedDate}
-            onChange={(event) =>
-              handleDateChange(
-                event.target.value
-              )
-            }
-            disabled={loading}
-          />
-
         </div>
 
-        <div className="departure-time">
+        <div className="query-details">
+          <div className="query-field">
+            <label className="query-label">
+              {t(
+                "query.locationLabel",
+                "Location"
+              )}
+            </label>
 
-          <label htmlFor="departure-time">
-            🕐 DEPARTURE TIME
-          </label>
+            <div className="location-input-wrapper">
+              <input
+                type="text"
+                value={location}
+                onChange={handleLocationChange}
+                onFocus={() => {
+                  if (
+                    locationSuggestions.length
+                  ) {
+                    setShowLocationSuggestions(
+                      true
+                    );
+                  }
+                }}
+                placeholder={t(
+                  "query.locationPlaceholder",
+                  "Enter a coastal location"
+                )}
+                disabled={loading}
+              />
 
-          <div className="time-picker-row">
+              <button
+                type="button"
+                className="location-button"
+                onClick={getCurrentLocation}
+                disabled={
+                  loading ||
+                  locationLoading
+                }
+              >
+                {locationLoading
+                  ? "..."
+                  : "⌖"}
+              </button>
 
-            {(() => {
-              const current =
-                parseTime12(
-                  selectedTime ||
-                    "06:00"
-                );
-
-              const updateTime = (
-                hour: string,
-                minute: string,
-                period: string
-              ) => {
-                handleTimeChange(
-                  buildTime24(
-                    hour,
-                    minute,
-                    period
-                  )
-                );
-              };
-
-              return (
-                <div
-                  className="time-picker"
-                  aria-label="Departure time"
-                >
-                  <span className="time-picker-icon">
-                    🕐
-                  </span>
-
-                  <select
-                    id="departure-time-hour"
-                    value={current.hour}
-                    onChange={(event) =>
-                      updateTime(
-                        event.target.value,
-                        current.minute,
-                        current.period
-                      )
-                    }
-                    disabled={loading}
-                    aria-label="Hour"
-                  >
-                    {Array.from(
-                      { length: 12 },
-                      (_, index) =>
-                        String(index + 1)
-                    ).map((hour) => (
-                      <option
-                        key={hour}
-                        value={hour}
-                      >
-                        {hour}
-                      </option>
-                    ))}
-                  </select>
-
-                  <span className="time-colon">
-                    :
-                  </span>
-
-                  <select
-                    id="departure-time-minute"
-                    value={current.minute}
-                    onChange={(event) =>
-                      updateTime(
-                        current.hour,
-                        event.target.value,
-                        current.period
-                      )
-                    }
-                    disabled={loading}
-                    aria-label="Minute"
-                  >
-                    {[
-                      "00",
-                      "15",
-                      "30",
-                      "45",
-                    ].map(
-                      (minute) => (
-                        <option
-                          key={minute}
-                          value={minute}
+              {showLocationSuggestions &&
+                locationSuggestions.length >
+                  0 && (
+                  <div className="location-suggestions">
+                    {locationSuggestions.map(
+                      (item, index) => (
+                        <button
+                          type="button"
+                          key={`${item.lat}-${item.lon}-${index}`}
+                          onClick={() =>
+                            selectLocation(
+                              item
+                            )
+                          }
                         >
-                          {minute}
-                        </option>
+                          {item.display_name}
+                        </button>
                       )
                     )}
-                  </select>
+                  </div>
+                )}
+            </div>
 
-                  <select
-                    id="departure-time-period"
-                    value={current.period}
-                    onChange={(event) =>
-                      updateTime(
-                        current.hour,
-                        current.minute,
-                        event.target.value
-                      )
-                    }
-                    disabled={loading}
-                    aria-label="AM or PM"
-                  >
-                    <option value="AM">
-                      AM
-                    </option>
-
-                    <option value="PM">
-                      PM
-                    </option>
-                  </select>
+            {latitude !== null &&
+              longitude !== null && (
+                <div className="coordinates-info">
+                  {latitude.toFixed(5)}
+                  {" , "}
+                  {longitude.toFixed(5)}
                 </div>
-              );
-            })()}
+              )}
 
-            <span className="time-picker-hint">
-              {selectedTime
-                ? formatTime12(
-                    selectedTime
-                  )
-                : "Choose a time"}
-            </span>
-
+            {locationError && (
+              <div className="query-error">
+                {locationError}
+              </div>
+            )}
           </div>
 
-          <div className="departure-time-options">
+          <div className="query-date-time">
+            <div className="query-field">
+              <label className="query-label">
+                {t(
+                  "query.dateLabel",
+                  "Date"
+                )}
+              </label>
 
-            {quickTimes.map(
-              (time) => (
+              <input
+                type="date"
+                value={date}
+                min={today}
+                onChange={(event) =>
+                  setDate(event.target.value)
+                }
+                disabled={loading}
+              />
+            </div>
+
+            <div className="query-field">
+              <label className="query-label">
+                {t(
+                  "query.timeLabel",
+                  "Time"
+                )}
+              </label>
+
+              <input
+                type="time"
+                value={time}
+                onChange={(event) =>
+                  setTime(event.target.value)
+                }
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          {needsBoatInfo && (
+            <div className="boat-profile-section">
+              <div className="boat-profile-header">
+                <div>
+                  <label className="query-label">
+                    {t(
+                      "query.boatSizeLabel",
+                      "Boat size"
+                    )}
+                  </label>
+
+                  <p>
+                    {t(
+                      "query.boatSizeDescription",
+                      "Tell ORCA the approximate size of your boat so the analysis can include the correct operational context."
+                    )}
+                  </p>
+                </div>
+
+                <span className="boat-profile-badge">
+                  {t(
+                    "query.required",
+                    "Required"
+                  )}
+                </span>
+              </div>
+
+              <div className="boat-size-options">
                 <button
                   type="button"
-                  key={time}
                   className={
-                    selectedTime === time
-                      ? "departure-time-selected"
-                      : ""
+                    boatSize === "small"
+                      ? "boat-size-option selected"
+                      : "boat-size-option"
                   }
                   onClick={() =>
-                    handleTimeChange(
-                      time
-                    )
+                    setBoatSize("small")
                   }
                   disabled={loading}
                 >
-                  {formatTime12(time)}
+                  <strong>
+                    {t(
+                      "query.boatSmall",
+                      "Small"
+                    )}
+                  </strong>
+                  <span>
+                    {t(
+                      "query.boatSmallDescription",
+                      "Small fishing / local boat"
+                    )}
+                  </span>
                 </button>
-              )
-            )}
 
-          </div>
+                <button
+                  type="button"
+                  className={
+                    boatSize === "medium"
+                      ? "boat-size-option selected"
+                      : "boat-size-option"
+                  }
+                  onClick={() =>
+                    setBoatSize("medium")
+                  }
+                  disabled={loading}
+                >
+                  <strong>
+                    {t(
+                      "query.boatMedium",
+                      "Medium"
+                    )}
+                  </strong>
+                  <span>
+                    {t(
+                      "query.boatMediumDescription",
+                      "Medium operational boat"
+                    )}
+                  </span>
+                </button>
 
+                <button
+                  type="button"
+                  className={
+                    boatSize === "large"
+                      ? "boat-size-option selected"
+                      : "boat-size-option"
+                  }
+                  onClick={() =>
+                    setBoatSize("large")
+                  }
+                  disabled={loading}
+                >
+                  <strong>
+                    {t(
+                      "query.boatLarge",
+                      "Large"
+                    )}
+                  </strong>
+                  <span>
+                    {t(
+                      "query.boatLargeDescription",
+                      "Large vessel"
+                    )}
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-
       </div>
 
-      {speechError && (
-        <div className="speech-error">
-
-          <span>⚠</span>
-
+      <div className="query-footer">
+        <div className="query-data-note">
+          <span className="status-dot" />
           <span>
-            {speechError}
+            {t(
+              "query.dataNote",
+              "ORCA uses location-specific weather, ocean and available satellite evidence."
+            )}
           </span>
-
         </div>
-      )}
 
-      {!speechSupported && (
-        <div className="speech-error">
-
-          <span>⚠</span>
-
-          <span>
-            Voice input is not supported in this
-            browser. Please use Chrome or Edge.
-          </span>
-
-        </div>
-      )}
-
-    </div>
+        <button
+          type="button"
+          className="analyze-button"
+          onClick={handleAnalyze}
+          disabled={
+            loading ||
+            locationLoading ||
+            !question.trim() ||
+            !location.trim() ||
+            !date ||
+            !time ||
+            (needsBoatInfo && !boatSize)
+          }
+        >
+          {loading
+            ? t(
+                "query.analyzing",
+                "Analyzing..."
+              )
+            : t(
+                "query.analyze",
+                "Analyze with ORCA"
+              )}
+        </button>
+      </div>
+    </section>
   );
 }
-
-export default QueryForm;
