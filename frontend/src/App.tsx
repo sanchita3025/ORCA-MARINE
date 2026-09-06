@@ -86,11 +86,49 @@ function displayDecision(value: unknown): string {
     .trim();
 }
 
+
+function OrcaDolphinLogo({ small = false }: { small?: boolean }) {
+  return (
+    <svg
+      className={small ? "orca-dolphin-logo small" : "orca-dolphin-logo"}
+      viewBox="0 0 160 120"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="ORCA dolphin logo"
+    >
+      <defs>
+        <linearGradient id="orcaDolphinGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#69efff" />
+          <stop offset="55%" stopColor="#29cde9" />
+          <stop offset="100%" stopColor="#1688c6" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M18 70c18-31 53-47 91-34 15 5 26 15 33 27-18-8-34-8-48-2 10 8 17 18 19 31-17-9-31-10-45-5-13 5-27 5-42-2 8-5 13-10 17-15-10 1-18 1-25 0z"
+        fill="url(#orcaDolphinGradient)"
+      />
+      <path
+        d="M108 34c9-13 21-20 36-23-5 12-5 22 1 32-14-4-26-7-37-9z"
+        fill="url(#orcaDolphinGradient)"
+      />
+      <path
+        d="M51 78c10 12 23 18 39 17-12 9-27 12-42 8-10-3-19-9-26-17 11 2 20 0 29-8z"
+        fill="none"
+        stroke="#83f3ff"
+        strokeWidth="5"
+        strokeLinecap="round"
+        opacity=".9"
+      />
+      <circle cx="113" cy="48" r="3" fill="#06111f" />
+    </svg>
+  );
+}
+
 export default function App() {
   const { language, languageInfo } = useOrcaLanguage();
   const L = (key: Parameters<typeof ui>[1]) => ui(language, key);
   const [screen, setScreen] = useState<"welcome" | "roles" | "verify" | "vessel" | "ask" | "loading" | "dashboard">("welcome");
   const [enteredOrca, setEnteredOrca] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
   const [verified, setVerified] = useState(false);
   const [verificationId, setVerificationId] = useState("");
@@ -129,6 +167,8 @@ export default function App() {
   // Start every fresh app session at the Welcome page.
   useEffect(() => {
     setScreen("welcome");
+    const timer = window.setTimeout(() => setShowSplash(false), 2600);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const roleId = role?.id ?? null;
@@ -389,6 +429,11 @@ export default function App() {
     if (!roleId) return;
     if (!question.trim()) { setError("Please enter a question first."); return; }
     if (vesselRequired && (destination.latitude == null || destination.longitude == null)) { setError("Choose the offshore / operating destination before asking ORCA."); return; }
+    const requested = new Date(`${date}T${nextTime}:00`);
+    if (!Number.isNaN(requested.getTime()) && requested.getTime() < Date.now() - 60_000) {
+      setError("Past date/time selected. ORCA only provides present or future decision support for fishing and marine operations.");
+      return;
+    }
     setError(""); setScreen("loading");
     try {
       const response = await analyzeOrca({
@@ -430,6 +475,11 @@ export default function App() {
   }
 
   async function runWhatIf(nextTime: string) {
+    const requested = new Date(`${date}T${nextTime}:00`);
+    if (!Number.isNaN(requested.getTime()) && requested.getTime() < Date.now() - 60_000) {
+      setError("Past date/time selected. What-If only checks present or future hours.");
+      return;
+    }
     setWhatIfLoading(true); setError("");
     try {
       const response = await getWhatIf({
@@ -458,25 +508,43 @@ export default function App() {
 
   function nav(view: View) { setActiveView(view); setMobileNavOpen(false); }
 
+  if (showSplash) return (
+    <div className="orca-splash" aria-label="Loading ORCA">
+      <div className="splash-glow splash-glow-one" />
+      <div className="splash-glow splash-glow-two" />
+      <div className="splash-content">
+        <div className="dolphin-logo large" aria-hidden="true"><OrcaDolphinLogo /></div>
+        <div className="splash-wordmark">ORCA</div>
+        <div className="splash-subtitle">MARINE ECOSYSTEM INTELLIGENCE</div>
+        <div className="splash-loader"><span /><span /><span /></div>
+      </div>
+    </div>
+  );
+
   if (!enteredOrca || screen === "welcome") return (
-    <div className="fullscreen intro-screen welcome-language-screen" style={{ position: "fixed", inset: 0, zIndex: 99999, display: "flex", alignItems: "center", justifyContent: "center", background: "#06111f", color: "#eef8ff", overflow: "auto" }}>
-      <div className="orb orb-a" /><div className="orb orb-b" />
-      <div className="intro-inner welcome-card" style={{ position: "relative", zIndex: 2, width: "min(760px, 92vw)", padding: "48px", borderRadius: "28px", background: "rgba(10,28,47,.96)", border: "1px solid rgba(71,211,255,.28)", boxShadow: "0 30px 100px rgba(0,0,0,.45)" }}>
-        <div className="brand-mark">◉</div>
-        <div className="eyebrow">ORCA • MARINE ECOSYSTEM INTELLIGENCE</div>
-        <h1>Ask the Ocean.<br /><span>Understand the Risk.</span></h1>
-        <p>Choose your language first. ORCA will use it for the interface and voice features throughout your session.</p>
-        <div className="welcome-language">
-          <label><span>CHOOSE YOUR LANGUAGE</span>
-            <select value={language} onChange={e => saveLanguage(e.target.value as LanguageCode)}>
-              {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native} · {l.name}</option>)}
-            </select>
-          </label>
-          <small>Voice availability depends on the voices supported by your browser for the selected language.</small>
-        </div>
-        <div className="intro-points"><span>✓ Weather + ocean evidence</span><span>✓ Satellite / PFZ</span><span>✓ GIS + deterministic risk</span></div>
-        <button className="primary-btn big" onClick={() => { setEnteredOrca(true); setScreen("roles"); }}>{L("enterOrca")} <span>→</span></button>
-        <small>Decision support prototype • Not an official navigation or safety system</small>
+    <div className="fullscreen intro-screen welcome-language-screen redesigned-welcome v2-welcome">
+      <div className="welcome-ocean-glow glow-one" /><div className="welcome-ocean-glow glow-two" />
+      <div className="welcome-topline"><span className="dolphin-mini"><OrcaDolphinLogo small /></span> ORCA <b>MARINE ECOSYSTEM INTELLIGENCE</b></div>
+      <div className="v2-welcome-shell">
+        <section className="v2-welcome-copy">
+          <div className="welcome-brand-row"><span className="dolphin-logo large"><svg viewBox="0 0 160 120"><path d="M18 70c18-31 53-47 91-34 15 5 26 15 33 27-18-8-34-8-48-2 10 8 17 18 19 31-17-9-31-10-45-5-13 5-27 5-42-2 8-5 13-10 17-15-10 1-18 1-25 0z"/><path d="M108 34c9-13 21-20 36-23-5 12-5 22 1 32-14-4-26-7-37-9z"/><circle cx="113" cy="48" r="3"/></svg></span><div><div className="v2-brand">ORCA</div><div className="v2-brand-sub">MARINE ECOSYSTEM INTELLIGENCE</div></div></div>
+          <div className="eyebrow">FROM OCEAN DATA TO CLEARER DECISIONS</div>
+          <h1>Ask the ocean.<br /><span>Understand the risk.</span></h1>
+          <p className="welcome-lead">ORCA brings weather, ocean, satellite, PFZ and GIS evidence together to help you understand marine conditions before you decide.</p>
+          <div className="v2-feature-pills"><span>🌊 Weather + Ocean</span><span>🛰️ Satellite + PFZ</span><span>🗺️ GIS + Risk</span></div>
+        </section>
+        <section className="v2-welcome-panel">
+          <div className="v2-panel-label">START YOUR ORCA SESSION</div>
+          <h2>One ocean.<br /><span>Many decisions.</span></h2>
+          <p>Select your language, then ORCA will adapt the experience to your stakeholder role.</p>
+          <div className="welcome-language v2-language">
+            <label><span>CHOOSE YOUR LANGUAGE</span><select value={language} onChange={e => saveLanguage(e.target.value as LanguageCode)}>{LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.native} · {l.name}</option>)}</select></label>
+            <small>Voice availability depends on your browser.</small>
+          </div>
+          <button className="primary-btn big welcome-enter-btn v2-enter" onClick={() => { setEnteredOrca(true); setScreen("roles"); }}>ENTER ORCA <span>→</span></button>
+          <div className="v2-trust-row"><span>✓ Evidence-first</span><span>✓ Deterministic risk</span><span>✓ Transparent sources</span></div>
+          <small className="welcome-disclaimer">Decision-support prototype • Not an official navigation or safety system</small>
+        </section>
       </div>
     </div>
   );
@@ -583,7 +651,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className={mobileNavOpen ? "sidebar mobile-open" : "sidebar"}>
-        <div className="side-brand"><div className="side-logo">◉</div><div><b>ORCA</b><small>MARINE INTELLIGENCE</small></div></div>
+        <div className="side-brand"><div className="side-logo dolphin-side-logo"><OrcaDolphinLogo small /></div><div><b>ORCA</b><small>MARINE INTELLIGENCE</small></div></div>
         <div className="side-role"><span>{role?.icon}</span><div><b>{role?.title}</b><small>{verified ? "Verified access" : "Public access"}</small></div></div>
         <nav>
           <NavItem icon="⌂" label={L("dashboard")} active={activeView === "dashboard"} onClick={() => nav("dashboard")} />
@@ -630,10 +698,20 @@ export default function App() {
       const priorities = Array.isArray(qa.priority) ? qa.priority : [];
       const direct = displayValue(qa.direct_answer, displayDecision(result?.recommendation));
       const summary = displayValue(qa.answer_summary, "ORCA matched your question to the available evidence.");
-      return <section className="question-answer-card">
-        <div className="question-answer-head"><div><span className="section-label">ANSWER TO YOUR QUESTION</span><h2>{direct}</h2></div><span className="intent-badge">{intent.replaceAll("_", " ")}</span></div>
-        <p>{summary}</p>
-        <div className="question-answer-meta"><span>Question</span><b>{question || "General marine assessment"}</b></div>
+      const answerTone = /^(YES|PREFERRED)/i.test(direct) ? "answer-yes" : /^(NO|AVOID)/i.test(direct) ? "answer-no" : /^(CAUTION|MODERATE)/i.test(direct) ? "answer-caution" : "answer-neutral";
+      return <section className={`question-answer-card ${answerTone}`}>
+        <div className="question-answer-head">
+          <div className="question-answer-main">
+            <span className="section-label">ANSWER TO YOUR QUESTION</span>
+            <h2>{direct}</h2>
+          </div>
+          <span className="intent-badge">{intent.replaceAll("_", " ")}</span>
+        </div>
+        <p className="question-answer-summary">{summary}</p>
+        <div className="question-answer-meta">
+          <span className="qa-label">YOUR QUESTION</span>
+          <b>{question || "General marine assessment"}</b>
+        </div>
         {priorities.length > 0 && <div className="priority-row">{priorities.map((x: string) => <span key={x}>{x.replaceAll("_", " ")}</span>)}</div>}
       </section>;
     }
@@ -745,7 +823,12 @@ export default function App() {
         {renderRoleWorkspace()}
         <div className="role-focus-grid compact">{(focus?.cards || []).map(([icon,title,desc]) => <div className="role-focus-card" key={title}><span>{icon}</span><b>{title}</b><small>{desc}</small></div>)}</div>
         {roleId === "fisherman" && verified && <FishingIntelligence />}
-        <div className="quick-grid"><button onClick={() => nav("evidence")}><span>◈</span><b>Evidence</b><small>{roleId === "researcher" ? "Source provenance and observations" : "See exactly what ORCA used"}</small></button><button onClick={() => nav("map")}><span>⌖</span><b>Marine map</b><small>{roleId === "authority" ? "Regional risk and spatial context" : roleId === "boat-operator" ? "Routes and operating conditions" : "Location and spatial context"}</small></button>{(vesselRequired) && <button onClick={() => nav("whatif")}><span>◇</span><b>What-if</b><small>Try another time or condition</small></button>}{(effectiveRole === "fisherman" || effectiveRole === "boat-operator" || effectiveRole === "authority") && <button onClick={() => nav("alerts")}><span>⚠</span><b>Alerts</b><small>{watcherOn ? "Monitoring active" : "Monitoring off"}</small></button>}</div>
+        <div className="quick-grid quick-actions-grid">
+          <button className="quick-action evidence-action" onClick={() => nav("evidence")}><span>◈</span><b>Evidence</b><small>{roleId === "researcher" ? "Source provenance and observations" : "See exactly what ORCA used"}</small><em>OPEN →</em></button>
+          <button className="quick-action map-action" onClick={() => nav("map")}><span>⌖</span><b>Marine Map</b><small>{roleId === "authority" ? "Regional risk and spatial context" : roleId === "boat-operator" ? "Routes and operating conditions" : "Location and spatial context"}</small><em>OPEN →</em></button>
+          {vesselRequired && <button className="quick-action whatif-action" onClick={() => nav("whatif")}><span>◇</span><b>What-If</b><small>Try another time or condition</small><em>TRY →</em></button>}
+          {(effectiveRole === "fisherman" || effectiveRole === "boat-operator" || effectiveRole === "authority") && <button className="quick-action alerts-action" onClick={() => nav("alerts")}><span>⚠</span><b>Alerts</b><small>{watcherOn ? "Monitoring active" : "Monitoring off"}</small><em>VIEW →</em></button>}
+        </div>
         <div className="trust-strip"><b>DATA QUALITY</b><span className={dataQuality === "live" ? "good" : "warn"}>{dataQuality.toUpperCase()}</span><span>Weather: {weather?.source || "—"}</span><span>Ocean: {ocean?.source || "—"}</span><span>PFZ: {result?.fishing_zone?.status || "not checked"}</span></div>
       </>}
     </div>;
@@ -930,19 +1013,35 @@ export default function App() {
   }
 
   function LanguageView() {
-    return <div className="panel-page"><PanelHeader kicker="LANGUAGE" title="ORCA in your language" /><p className="muted">Choose the interface language. Voice input and voice output follow the selected language when your browser supports it.</p><div className="language-grid">{LANGUAGES.map(l => <button key={l.code} className={language === l.code ? "language-card active" : "language-card"} onClick={() => saveLanguage(l.code as LanguageCode)}><span>{l.native}</span><div><b>{l.name}</b><small>Interface and supported voice locale</small></div>{language === l.code && <strong>✓</strong>}</button>)}</div></div>;
+    return <div className="panel-page language-page">
+      <PanelHeader kicker="LANGUAGE" title="ORCA in your language" />
+      <p className="muted">Choose the interface language. Voice input and voice output follow the selected language when your browser supports it.</p>
+      <div className="language-grid language-grid-fixed" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+        {LANGUAGES.map(l => {
+          const active = language === l.code;
+          return <button key={l.code} className={active ? "language-card active" : "language-card"} onClick={() => saveLanguage(l.code as LanguageCode)} style={{ minHeight: 76, display: "grid", gridTemplateColumns: "96px minmax(0,1fr) 28px", alignItems: "center", gap: 12, textAlign: "left", padding: "14px 16px", overflow: "hidden" }}>
+            <span className="language-native-fixed" style={{ fontSize: 27, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.native}</span>
+            <span style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+              <b style={{ fontSize: 15, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.name}</b>
+              <small style={{ fontSize: 10, lineHeight: 1.2, opacity: .65 }}>Interface + voice locale</small>
+            </span>
+            <strong style={{ color: "#39e7c4", fontSize: 22, textAlign: "center" }}>{active ? "✓" : ""}</strong>
+          </button>;
+        })}
+      </div>
+    </div>;
   }
 
 }
 
-function SetupHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) { return <header className="setup-header"><button className="text-btn" onClick={onBack}>← Back</button><div><span>STEP {step}</span><b>{title}</b></div><div className="setup-brand">ORCA ◉</div></header>; }
+function SetupHeader({ step, title, onBack }: { step: string; title: string; onBack: () => void }) { return <header className="setup-header"><button className="text-btn" onClick={onBack}>← Back</button><div><span>STEP {step}</span><b>{title}</b></div><div className="setup-brand"><OrcaDolphinLogo small /><span>ORCA</span></div></header>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
 function NavItem({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) { return <button className={active ? "nav-item active" : "nav-item"} onClick={onClick}><span>{icon}</span>{label}</button>; }
 function Metric({ icon, label, value, sub }: { icon: string; label: string; value: string; sub?: string }) { return <div className="metric-card"><span className="metric-icon">{icon}</span><div><span>{label}</span><strong>{value}</strong><small>{sub || ""}</small></div></div>; }
 function FlowNode({ icon, title, status }: { icon: string; title: string; status: string }) { return <div className="flow-node"><span>{icon}</span><b>{title}</b><small>{status}</small></div>; }
 function PanelHeader({ kicker, title }: { kicker: string; title: string }) { return <div className="panel-header"><div><div className="eyebrow">{kicker}</div><h1>{title}</h1></div></div>; }
 function WatchItem({ ok, text }: { ok: boolean; text: string }) { return <div className={ok ? "watch-ok" : "watch-review"}><span>{ok ? "✓" : "!"}</span><b>{text}</b></div>; }
-function LoadingOrca({ role }: { role: string }) { return <div className="fullscreen loading-screen"><div className="loader-orb">◉</div><div className="eyebrow">ORCA INTELLIGENCE</div><h1>Building your <span>{role.toLowerCase()}</span> assessment…</h1><div className="agent-steps"><span>✓ Weather</span><span>✓ Ocean</span><span>✓ Satellite / PFZ</span><span>✓ GIS</span><span>✓ Risk Engine</span></div><small>Using live sources when available. ORCA does not invent unavailable marine data.</small></div>; }
+function LoadingOrca({ role }: { role: string }) { return <div className="fullscreen loading-screen"><div className="loader-orb dolphin-loader-orb"><OrcaDolphinLogo /></div><div className="eyebrow">ORCA INTELLIGENCE</div><h1>Building your <span>{role.toLowerCase()}</span> assessment…</h1><div className="agent-steps"><span>✓ Weather</span><span>✓ Ocean</span><span>✓ Satellite / PFZ</span><span>✓ GIS</span><span>✓ Risk Engine</span></div><small>Using live sources when available. ORCA does not invent unavailable marine data.</small></div>; }
 function suggestionsFor(role: RoleId | null) {
   if (role === "fisherman") return [
     "Can I go fishing near Paradip tomorrow at 6 AM?",

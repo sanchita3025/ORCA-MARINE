@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, Popup, Polyline, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -86,6 +86,29 @@ function routeColor(point: RoutePoint | undefined) {
   return "#7b9099";
 }
 
+function MapControls({ onToggleLegend, legendOpen }: { onToggleLegend: () => void; legendOpen: boolean }) {
+  const map = useMap();
+  const [full, setFull] = useState(false);
+  const zoomIn = () => map.zoomIn();
+  const zoomOut = () => map.zoomOut();
+  const locate = () => map.setZoom(Math.max(map.getZoom(), 9));
+  const toggleFullscreen = async () => {
+    const shell = map.getContainer().closest(".marine-map-shell") as HTMLElement | null;
+    if (!shell) return;
+    try {
+      if (!document.fullscreenElement) { await shell.requestFullscreen(); setFull(true); }
+      else { await document.exitFullscreen(); setFull(false); }
+    } catch { setFull(false); }
+  };
+  return <div className="map-control-stack">
+    <button type="button" aria-label="Zoom in" title="Zoom in" onClick={zoomIn}>+</button>
+    <button type="button" aria-label="Zoom out" title="Zoom out" onClick={zoomOut}>−</button>
+    <button type="button" aria-label="Recenter map" title="Recenter" onClick={locate}>⌾</button>
+    <button type="button" aria-label={legendOpen ? "Hide map legend" : "Show map legend"} title={legendOpen ? "Hide legend" : "Show legend"} onClick={onToggleLegend}>☰</button>
+    <button type="button" aria-label={full ? "Exit full screen" : "View map full screen"} title={full ? "Exit full screen" : "View map full screen"} onClick={toggleFullscreen}>⛶</button>
+  </div>;
+}
+
 export default function MarineMap({
   latitude,
   longitude,
@@ -103,6 +126,7 @@ export default function MarineMap({
   const hasRange = rangeKm != null && Number.isFinite(rangeKm) && rangeKm > 0;
   const hasPfz = !!pfz && Number.isFinite(pfz.latitude) && Number.isFinite(pfz.longitude);
   const hasOrigin = !!origin && Number.isFinite(origin.latitude) && Number.isFinite(origin.longitude);
+  const [legendOpen, setLegendOpen] = useState(true);
 
   return (
     <div className="marine-map-shell">
@@ -114,6 +138,7 @@ export default function MarineMap({
       <MapContainer center={position} zoom={9} scrollWheelZoom style={{ height: "100%", width: "100%" }}>
         <MapUpdater latitude={latitude} longitude={longitude} />
         <TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <MapControls legendOpen={legendOpen} onToggleLegend={() => setLegendOpen(v => !v)} />
 
         {routes.map((route) => {
           const points = route.points || [];
@@ -174,7 +199,9 @@ export default function MarineMap({
         )}
       </MapContainer>
 
-      <div className="map-legend-card">
+      <div className={`map-legend-card ${legendOpen ? "open" : "collapsed"}`}>
+        <button type="button" className="map-legend-toggle" onClick={() => setLegendOpen(v => !v)}>{legendOpen ? "‹ Hide map legend" : "› Show map legend"}</button>
+        {legendOpen && <div className="map-legend-content">
         <div><span className="legend-dot selected" /> <b>Target / assessment</b></div>
         {hasOrigin && <div><span className="legend-dot departure" /> <b>🚤 Departure</b></div>}
         <div><span className="legend-dot pfz" /> <b>Purple = PFZ / fishing opportunity signal</b></div>
@@ -190,6 +217,7 @@ export default function MarineMap({
         <div><span className="legend-risk">{risk != null ? risk : "—"}</span> <b>Target risk / 100</b></div>
         {preferredRoute && <div className="map-preferred">✓ Preferred: {preferredRoute}</div>}
         {restricted && <div className="map-restricted">⚠ Restricted-zone hit reported by connected GIS data</div>}
+        </div>}
       </div>
     </div>
   );

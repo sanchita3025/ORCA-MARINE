@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import math
 from pathlib import Path
 from typing import Any
@@ -114,8 +115,76 @@ def _parse_datetime(
     return None
 
 
+IST = ZoneInfo("Asia/Kolkata")
+
+def _now_ist() -> datetime:
+    return datetime.now(IST)
+
 def _default_datetime() -> datetime:
-    return datetime.now()
+    return _now_ist()
+
+def _as_ist(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=IST)
+    return value.astimezone(IST)
+
+def _is_past_datetime(value: datetime) -> bool:
+    return _as_ist(value) < _now_ist() - timedelta(minutes=1)
+
+def _past_request_response(requested_datetime: datetime, question: str = "") -> dict[str, Any]:
+    dt = _as_ist(requested_datetime)
+    return {
+        "status": "unavailable", "available": False, "question": question,
+        "requested_datetime": dt.isoformat(),
+        "query_understanding": {"intent": "PAST_REQUEST", "label": "Past date/time request"},
+        "question_answer": {
+            "direct_answer": "PAST DATE/TIME — NO LIVE DECISION",
+            "answer_summary": "ORCA does not present current or forecast marine conditions as if they were usable for a past fishing or operating trip. Select the present time or a future date/time.",
+            "priority": ["time_validity", "weather", "ocean"], "intent": "PAST_REQUEST", "best_window": None,
+        },
+        "risk_score": None, "risk_level": "UNAVAILABLE",
+        "final_decision": "NO LIVE DECISION FOR PAST TIME",
+        "recommendation": "Select a present or future date/time.",
+        "weather": {"status": "unavailable", "available": False, "message": "Past requested time — live decision-support data is not presented."},
+        "ocean": {"status": "unavailable", "available": False, "message": "Past requested time — live decision-support data is not presented."},
+        "satellite": {"status": "not_requested", "available": False},
+        "fishing_zone": {"status": "not_requested", "available": False},
+        "marine_context": {"is_marine": None},
+        "restricted_zone": {"restricted": None, "status": "DATA_UNAVAILABLE"},
+        "message": "Past date/time requests are blocked. ORCA is a present/future decision-support system, not a historical replay system.",
+    }
+
+
+def _question_datetime_overrides(question: str, base_date: str | None, base_time: str | None) -> tuple[str | None, str | None]:
+    """Use an explicit date/time phrase in the user's question when present.
+    Examples: 'tomorrow at 6 AM', 'today at 18:00', 'on 2026-09-10 at 07:30'.
+    Manual date/time fields remain the fallback when the question has no explicit phrase.
+    """
+    import re
+    text = (question or "").strip().lower()
+    if not text:
+        return base_date, base_time
+
+    target_date = base_date
+    now = _now_ist()
+    if re.search(r"\btomorrow\b", text):
+        target_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    elif re.search(r"\btoday\b", text):
+        target_date = now.strftime("%Y-%m-%d")
+
+    target_time = base_time
+    m = re.search(r"\bat\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", text)
+    if m:
+        hour = int(m.group(1)); minute = int(m.group(2) or 0); ap = m.group(3)
+        if hour == 12: hour = 0
+        if ap == "pm": hour += 12
+        target_time = f"{hour:02d}:{minute:02d}"
+    else:
+        m24 = re.search(r"\bat\s*(\d{1,2}):(\d{2})\b", text)
+        if m24:
+            target_time = f"{int(m24.group(1)):02d}:{int(m24.group(2)):02d}"
+
+    return target_date, target_time
 
 
 def _requested_datetime(
@@ -215,11 +284,19 @@ def _direct_question_answer(
     sat_obs = satellite.get("satellite_observations") or {}
     sat_sst = (sat_obs.get("sst") or {}).get("value")
     chl = (sat_obs.get("chlorophyll") or {}).get("value")
-    dt_label = requested_datetime.strftime("%d %b %Y, %I:%M %p")
+    dt_label = _as_ist(requested_datetime).strftime("%d %b %Y, %I:%M %p")
 
     if intent == "FISHING_DECISION":
-        answer = recommendation.replace("_", " ").upper()
-        summary = f"At the selected time ({dt_label}), ORCA's deterministic marine assessment is {risk_level}."
+        rec = recommendation.replace("_", " ").upper()
+        if rec in {"AVOID", "SEVERE", "HIGH RISK", "INSUFFICIENT DATA"} or "INSUFFICIENT" in rec:
+            answer = f"NO — {rec}" if "INSUFFICIENT" not in rec else "NO RELIABLE DECISION"
+        elif rec in {"CAUTION", "MODERATE", "MODERATE RISK"} or risk_level.upper() == "MODERATE":
+            answer = "CAUTION — CONDITIONS ARE MODERATE"
+        elif risk_level.upper() in {"HIGH", "SEVERE"}:
+            answer = f"NO — CONDITIONS ARE {risk_level.upper()} RISK"
+        else:
+            answer = f"YES — {rec}"
+        summary = f"For {dt_label}, ORCA's deterministic marine assessment is {risk_level}. This answer uses the exact requested time when it was stated in the question."
         return {"direct_answer": answer, "answer_summary": summary, "priority": ["decision", "risk", "weather", "ocean", "pfz"]}
 
     if intent == "MARINE_CONDITIONS":
@@ -817,6 +894,9 @@ def _route_summary(name: str, points: list[dict[str, float]], conditions: list[d
 
 @app.get('/route-analysis')
 def route_analysis(origin_latitude: float = Query(...), origin_longitude: float = Query(...), target_latitude: float = Query(...), target_longitude: float = Query(...), date: str = Query(...), time: str = Query(...), cruising_speed: float = Query(...), consumption_lph: float = Query(...), usable_fuel_l: float = Query(...)):
+    requested = _requested_datetime(date, time, None)
+    if _is_past_datetime(requested):
+        return {"status":"unavailable","available":False,"requested_datetime":_as_ist(requested).isoformat(),"routes":[],"preferred_route":None,"message":"Past date/time blocked. Route planning only evaluates present or future operating conditions."}
     try:
         hour = max(0, min(23, int(str(time).split(':')[0])))
         speed, consumption, usable_fuel = float(cruising_speed), float(consumption_lph), max(0.0, float(usable_fuel_l))
@@ -1156,11 +1236,16 @@ def orca_analysis_post(
             "Valid latitude and longitude are required."
         )
 
+    question_text = str(payload.get("question", ""))
+    requested_date, requested_time = _question_datetime_overrides(
+        question_text, payload.get("date"), payload.get("time")
+    )
+
     return _run_orca_analysis(
         latitude=latitude,
         longitude=longitude,
-        date=payload.get("date"),
-        time=payload.get("time"),
+        date=requested_date,
+        time=requested_time,
         timestamp=payload.get("timestamp"),
         role=str(
             payload.get(
@@ -1202,6 +1287,9 @@ def _run_orca_analysis(
         time,
         timestamp,
     )
+
+    if _is_past_datetime(requested_datetime):
+        return _past_request_response(requested_datetime, question)
 
     marine_context = _marine_location_check(
         latitude,

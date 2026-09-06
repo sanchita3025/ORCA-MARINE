@@ -242,53 +242,57 @@ def get_live_satellite(latitude: float, longitude: float) -> dict[str, Any]:
     }
 
 
-def get_live_pfz(latitude: float, longitude: float) -> dict[str, Any]:
-    """Read the current official INCOIS PFZ advisory without inventing PFZ coordinates."""
-    try:
-        response = requests.get(
-            INCOIS_PFZ_PAGE,
-            timeout=REQUEST_TIMEOUT,
-            headers={"User-Agent": "ORCA-Marine-Ecosystem/1.0"},
-        )
-        response.raise_for_status()
-        html = response.text
-    except requests.RequestException as exc:
-        return {
-            "status": "unavailable",
-            "available": False,
-            "latitude": latitude,
-            "longitude": longitude,
-            "source": "INCOIS PFZ WebGIS",
-            "source_url": INCOIS_PFZ_PAGE,
-            "webgis_url": INCOIS_PFZ_WEBGIS,
-            "message": f"Live INCOIS PFZ advisory is unavailable: {exc}",
-        }
+def _extract_pfz_coordinates(raw_html: str) -> list[dict[str, Any]]:
+    """Best-effort extraction of authoritative PFZ coordinates embedded in INCOIS HTML/JS."""
+    points: list[dict[str, Any]] = []
+    seen: set[tuple[float, float]] = set()
+    pair_patterns = [
+        re.compile(r"(?:latitude|lat)\s*[=:]\s*[\"']?(-?\d+(?:\.\d+)?)[\"']?\s*[,;]\s*(?:longitude|lng|lon)\s*[=:]\s*[\"']?(-?\d+(?:\.\d+)?)[\"']?", re.I),
+        re.compile(r"(?:longitude|lng|lon)\s*[=:]\s*[\"']?(-?\d+(?:\.\d+)?)[\"']?\s*[,;]\s*(?:latitude|lat)\s*[=:]\s*[\"']?(-?\d+(?:\.\d+)?)[\"']?", re.I),
+        re.compile(r"(?:lat(?:itude)?)[\"']?\s*:\s*(-?\d+(?:\.\d+)?).*?(?:lon(?:gitude)?|lng)[\"']?\s*:\s*(-?\d+(?:\.\d+)?)", re.I | re.S),
+    ]
+    for idx, pattern in enumerate(pair_patterns):
+        for match in pattern.finditer(raw_html):
+            a, b = float(match.group(1)), float(match.group(2))
+            lat, lon = (b, a) if idx == 1 else (a, b)
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                key = (round(lat, 6), round(lon, 6))
+                if key not in seen:
+                    seen.add(key); points.append({"latitude": lat, "longitude": lon})
+    geo_pattern = re.compile(r"\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]")
+    for match in geo_pattern.finditer(raw_html):
+        lon, lat = float(match.group(1)), float(match.group(2))
+        if 6 <= lon <= 100 and 0 <= lat <= 30:
+            key = (round(lat, 6), round(lon, 6))
+            if key not in seen:
+                seen.add(key); points.append({"latitude": lat, "longitude": lon})
+    return points
 
+
+def get_live_pfz(latitude: float, longitude: float) -> dict[str, Any]:
+    """Retrieve current official INCOIS PFZ advisory and extract embedded coordinates when exposed."""
+    try:
+        response = requests.get(INCOIS_PFZ_PAGE, timeout=REQUEST_TIMEOUT, headers={"User-Agent": "ORCA-Marine-Ecosystem/1.0"})
+        response.raise_for_status(); html = response.text
+    except requests.RequestException as exc:
+        return {"status": "unavailable", "available": False, "latitude": latitude, "longitude": longitude, "source": "INCOIS PFZ Advisory", "source_url": INCOIS_PFZ_PAGE, "webgis_url": "https://incois.gov.in/MarineFisheries/PfzWebGis", "message": f"Live INCOIS PFZ advisory is unavailable: {exc}"}
     clean = _clean_html(html)
     dates = re.findall(r"\b\d{1,2}\s+[A-Z]{3}\s+\d{4}\b", clean.upper())
-    forecast_date = dates[0] if dates else None
-    valid_upto = dates[1] if len(dates) > 1 else None
-
+    forecast_date = dates[0] if dates else None; valid_upto = dates[1] if len(dates) > 1 else None
+    coordinates = _extract_pfz_coordinates(html)
+    nearby = []
+    for point in coordinates:
+        d2 = (point["latitude"] - latitude) ** 2 + (point["longitude"] - longitude) ** 2
+        point = {**point, "distance_degrees": round(math.sqrt(d2), 5)}
+        if d2 <= 25.0: nearby.append(point)
+    selected = sorted(nearby or coordinates, key=lambda p: p.get("distance_degrees", 999999))[:50]
     return {
-        "status": "available",
-        "available": True,
-        "latitude": latitude,
-        "longitude": longitude,
-        "source": "INCOIS PFZ WebGIS",
-        "source_url": INCOIS_PFZ_PAGE,
-        "webgis_url": INCOIS_PFZ_WEBGIS,
-        "overview_map_url": INCOIS_PFZ_MAP,
-        "forecast_date": forecast_date,
-        "valid_upto": valid_upto,
-        "sst_layer": True,
-        "chlorophyll_layer": True,
-        "pfz_coordinate_available": False,
-        "suitability": None,
-        "coordinate_source": "INCOIS WebGIS / PFZ text service",
-        "message": (
-            "The official INCOIS PFZ advisory is live. ORCA uses its published advisory status and WebGIS provenance, "
-            "but does not invent a nearest PFZ point or fishing suitability score when the public page does not expose one as machine-readable data."
-        ),
+        "status": "available", "available": True, "latitude": latitude, "longitude": longitude,
+        "source": "INCOIS PFZ Advisory", "source_url": INCOIS_PFZ_PAGE, "webgis_url": "https://incois.gov.in/MarineFisheries/PfzWebGis",
+        "overview_map_url": INCOIS_PFZ_MAP, "forecast_date": forecast_date, "valid_upto": valid_upto,
+        "pfz_coordinate_available": bool(selected), "pfz_points": selected,
+        "coordinate_source": "INCOIS PFZ advisory page / embedded WebGIS data", "sst_layer": True, "chlorophyll_layer": True,
+        "message": f"Official INCOIS PFZ advisory retrieved. {len(selected)} coordinate(s) were extracted from the published advisory data." if selected else "Official INCOIS PFZ advisory retrieved, but no machine-readable PFZ coordinate was exposed in the fetched page. ORCA does not fabricate a zone.",
         "retrieved_at": _iso_z(_utc_now()),
     }
 
