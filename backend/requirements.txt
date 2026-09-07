@@ -2,8 +2,3 @@ fastapi
 uvicorn
 requests
 pydantic
-xarray
-netCDF4
-
-# Optional global land/ocean mask for water-safe route planning
-global-land-mask
